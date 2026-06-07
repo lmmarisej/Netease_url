@@ -155,7 +155,26 @@
     <script>
         let currentQuality = 'lossless';
         let scheduleMode = 'interval';
+        // playlistIds 存储 {id: string, name: string} 对象，name 可为空（未加载时）
         let playlistIds = [];
+
+        // 歌单名称缓存（localStorage key）
+        const PLAYLIST_NAME_CACHE_KEY = 'playlist_name_cache';
+
+        function getPlaylistNameCache() {
+            try {
+                const raw = localStorage.getItem(PLAYLIST_NAME_CACHE_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch(e) { return {}; }
+        }
+
+        function setPlaylistNameCache(id, name) {
+            try {
+                const cache = getPlaylistNameCache();
+                cache[id] = name;
+                localStorage.setItem(PLAYLIST_NAME_CACHE_KEY, JSON.stringify(cache));
+            } catch(e) {}
+        }
 
         function showToast(msg, type) {
             type = type || 'info';
@@ -207,14 +226,48 @@
             const m = val.match(/playlist\?id=(\d+)/);
             if (m) id = m[1];
             if (!/^\d+$/.test(id)) return showToast('无效的歌单ID', 'warning');
-            if (playlistIds.indexOf(id) >= 0) return showToast('该歌单已在列表中', 'warning');
-            playlistIds.push(id);
+            if (playlistIds.some(function(p) { return p.id === id; })) return showToast('该歌单已在列表中', 'warning');
+
+            const $input = $('#playlist-add-input');
+            const $addBtn = $input.next('button').prop('disabled', true).text('加载中...');
+            $input.prop('disabled', true);
+
+            // 先尝试从缓存获取名称，同时调用API获取最新名称
+            const cache = getPlaylistNameCache();
+            const cachedName = cache[id] || '';
+            playlistIds.push({ id: id, name: cachedName });
             $('#playlist-add-input').val('');
             renderPlaylists();
+
+            // 异步获取歌单名称
+            $.ajax({
+                url: '/playlist', method: 'POST',
+                data: JSON.stringify({ id: id }), contentType: 'application/json', dataType: 'json',
+                success: function(data) {
+                    let name = '';
+                    if (data && data.data && data.data.playlist && data.data.playlist.name) {
+                        name = data.data.playlist.name;
+                    }
+                    if (name) {
+                        // 更新数组中的名称
+                        const idx = playlistIds.findIndex(function(p) { return p.id === id; });
+                        if (idx >= 0) playlistIds[idx].name = name;
+                        setPlaylistNameCache(id, name);
+                        renderPlaylists();
+                    }
+                },
+                error: function() {
+                    // API 调用失败，保留缓存名称或显示"加载失败"
+                },
+                complete: function() {
+                    $input.prop('disabled', false);
+                    $addBtn.prop('disabled', false).text('添加');
+                }
+            });
         }
 
         function removePlaylist(id) {
-            playlistIds = playlistIds.filter(function(i) { return i !== id; });
+            playlistIds = playlistIds.filter(function(p) { return p.id !== id; });
             renderPlaylists();
         }
 
@@ -224,8 +277,9 @@
                 $c.html('<small class="text-muted">尚未添加歌单</small>');
                 return;
             }
-            playlistIds.forEach(function(id) {
-                $c.append('<span class="playlist-tag">📋 ' + escHtml(id) + ' <span class="remove" onclick="removePlaylist(\'' + id + '\')">✕</span></span>');
+            playlistIds.forEach(function(p) {
+                const displayText = p.name ? (escHtml(p.name) + ' <small class="text-muted">(' + escHtml(p.id) + ')</small>') : escHtml(p.id);
+                $c.append('<span class="playlist-tag">📋 ' + displayText + ' <span class="remove" onclick="removePlaylist(\'' + escHtml(p.id) + '\')">✕</span></span>');
             });
         }
 
@@ -236,8 +290,16 @@
                     const cfg = data.data;
                     $('#sync-enable').prop('checked', cfg.enable_sync).trigger('change');
                     if (cfg.playlist_ids) {
-                        if (Array.isArray(cfg.playlist_ids)) playlistIds = cfg.playlist_ids;
-                        else if (typeof cfg.playlist_ids === 'string') playlistIds = cfg.playlist_ids.split(',').map(s => s.trim()).filter(Boolean);
+                        let rawIds = [];
+                        if (Array.isArray(cfg.playlist_ids)) rawIds = cfg.playlist_ids;
+                        else if (typeof cfg.playlist_ids === 'string') rawIds = cfg.playlist_ids.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+                        // 从缓存加载名称
+                        const cache = getPlaylistNameCache();
+                        playlistIds = rawIds.map(function(id) {
+                            return { id: id, name: cache[id] || '' };
+                        });
+                        // 异步补充缺失的名称
+                        fetchMissingPlaylistNames();
                     }
                     currentQuality = cfg.sync_quality || 'lossless';
                     $('#quality-btns .btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
@@ -258,13 +320,37 @@
             }, 'json');
         }
 
+        // 异步获取缺失的歌单名称
+        function fetchMissingPlaylistNames() {
+            playlistIds.forEach(function(p) {
+                if (!p.name) {
+                    $.ajax({
+                        url: '/playlist', method: 'POST',
+                        data: JSON.stringify({ id: p.id }), contentType: 'application/json', dataType: 'json',
+                        success: function(data) {
+                            let name = '';
+                            if (data && data.data && data.data.playlist && data.data.playlist.name) {
+                                name = data.data.playlist.name;
+                            }
+                            if (name) {
+                                const idx = playlistIds.findIndex(function(pp) { return pp.id === p.id; });
+                                if (idx >= 0) playlistIds[idx].name = name;
+                                setPlaylistNameCache(p.id, name);
+                                renderPlaylists();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
         function saveConfig() {
             const enable = $('#sync-enable').is(':checked');
             if (enable && playlistIds.length === 0) return showToast('请至少添加一个歌单ID', 'warning');
 
             const config = {
                 enable_sync: enable,
-                playlist_ids: playlistIds.join(','),
+                playlist_ids: playlistIds.map(function(p) { return p.id; }).join(','),
                 sync_quality: currentQuality,
                 sync_interval: parseInt($('#sync-interval').val()) || 3600,
                 cron_expression: scheduleMode === 'cron' ? $('#sync-cron').val().trim() : ''
