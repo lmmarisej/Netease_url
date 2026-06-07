@@ -1,0 +1,16 @@
+{
+  "host": "0.0.0.0",
+  "port": 5000,
+  "debug": false,
+  "downloads_dir": "downloads",
+  "log_level": "INFO",
+  "max_file_size": 524288000,
+  "request_timeout": 30,
+  "cors_origins": "*",
+  "cookie_file": "cookie.txt",
+  "enable_sync": false,
+  "playlist_ids": [],
+  "sync_quality": "lossless",
+  "sync_interval": 3600,
+  "cron_expression": ""
+}

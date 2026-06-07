@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 接口文档 - 网易云音乐工具箱</title>
+    <link href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background-color: #fff;
+            border-right: 1px solid #dee2e6;
+        }
+        .sidebar .nav-link {
+            color: #495057;
+            padding: 12px 20px;
+            border-radius: 0;
+            transition: all 0.2s;
+        }
+        .sidebar .nav-link:hover {
+            background-color: #f8f9fa;
+            color: #0d6efd;
+        }
+        .sidebar .nav-link.active {
+            background-color: #0d6efd;
+            color: #fff;
+        }
+        .sidebar .nav-link i {
+            margin-right: 8px;
+        }
+        .content-area {
+            padding: 30px;
+        }
+
+        /* API 文档样式 */
+        .api-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        .api-header h2 {
+            font-weight: 700;
+        }
+        .api-header .version-badge {
+            background: rgba(255,255,255,0.25);
+            border: 1px solid rgba(255,255,255,0.4);
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .category-card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 25px;
+            overflow: hidden;
+        }
+        .category-header {
+            background: #f0f4ff;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e8ecf4;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .category-header .cat-icon {
+            font-size: 22px;
+        }
+        .category-header h5 {
+            margin: 0;
+            font-weight: 600;
+            color: #3a3f5c;
+        }
+        .category-header .endpoint-count {
+            margin-left: auto;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .endpoint-block {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .endpoint-block:last-child {
+            border-bottom: none;
+        }
+        .endpoint-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .method-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .method-badge.get { background: #d1fae5; color: #065f46; }
+        .method-badge.post { background: #dbeafe; color: #1e40af; }
+        .method-badge.put { background: #fef3c7; color: #92400e; }
+        .method-badge.delete { background: #fee2e2; color: #991b1b; }
+        .endpoint-path {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 16px;
+            font-weight: 600;
+            color: #3a3f5c;
+            background: #f5f6fa;
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+        .endpoint-desc {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 14px;
+        }
+
+        .section-label {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #999;
+            margin-bottom: 8px;
+            margin-top: 14px;
+        }
+
+        .param-table {
+            width: 100%;
+            font-size: 13px;
+        }
+        .param-table th {
+            background: #f9fafb;
+            color: #555;
+            font-weight: 600;
+            padding: 8px 12px;
+            border: 1px solid #eee;
+        }
+        .param-table td {
+            padding: 8px 12px;
+            border: 1px solid #eee;
+            vertical-align: middle;
+        }
+        .param-required {
+            color: #dc3545;
+            font-weight: 700;
+        }
+        .param-optional {
+            color: #6c757d;
+        }
+        .param-default {
+            font-family: monospace;
+            background: #f5f6fa;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            color: #6366f1;
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .code-block.curl {
+            border-left: 3px solid #38bdf8;
+        }
+        .code-block.python {
+            border-left: 3px solid #4ade80;
+        }
+
+        .response-json {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #334155;
+        }
+
+        .alias-tag {
+            display: inline-block;
+            background: #fef3c7;
+            color: #92400e;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* TOC 目录 */
+        .toc-container {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            padding: 20px 24px;
+            margin-bottom: 25px;
+        }
+        .toc-container h6 {
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #3a3f5c;
+        }
+        .toc-container .toc-link {
+            display: block;
+            padding: 5px 0;
+            color: #6366f1;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.15s;
+        }
+        .toc-container .toc-link:hover {
+            color: #4f46e5;
+            padding-left: 5px;
+        }
+
+        /* 枚举表 */
+        .enum-table {
+            width: 100%;
+            font-size: 13px;
+        }
+        .enum-table th {
+            background: #f0f4ff;
+            color: #3a3f5c;
+            font-weight: 600;
+            padding: 8px 12px;
+            border: 1px solid #e8ecf4;
+        }
+        .enum-table td {
+            padding: 8px 12px;
+            border: 1px solid #e8ecf4;
+        }
+        .enum-table code {
+            background: #f5f6fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #6366f1;
+        }
+
+        .loading-spinner {
+            text-align: center;
+            padding: 60px 0;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 左侧导航栏 -->
+            <div class="col-md-3 col-lg-2 sidebar p-0">
+                <div class="p-3 border-bottom">
+                    <h5 class="mb-0">🎵 网易云工具箱</h5>
+                </div>
+                <nav class="nav flex-column mt-3">
+                    <a class="nav-link" href="/">
+                        <i>🏠</i> 业务操作
+                    </a>
+                    <a class="nav-link" href="/config">
+                        <i>⚙️</i> 定时同步配置
+                    </a>
+                    <a class="nav-link active" href="/api-docs">
+                        <i>📖</i> API 接口文档
+                    </a>
+                    <a class="nav-link" href="/logs">
+                        <i>📋</i> 运行日志
+                    </a>
+                </nav>
+            </div>
+
+            <!-- 右侧内容区 -->
+            <div class="col-md-9 col-lg-10 content-area">
+                <!-- API 头部信息 -->
+                <div id="api-header-area">
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p>正在加载 API 文档...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // 加载 API 文档数据
+            $.getJSON('/api/api-docs', function(response) {
+                if (!response.success || !response.data) {
+                    $('#api-header-area').html(
+                        '<div class="alert alert-danger">❌ 无法加载 API 文档数据</div>'
+                    );
+                    return;
+                }
+
+                const apiData = response.data;
+                renderAPIDocs(apiData);
+            }).fail(function() {
+                $('#api-header-area').html(
+                    '<div class="alert alert-danger">❌ 加载 API 文档失败，请确保服务正在运行</div>'
+                );
+            });
+
+            function renderAPIDocs(data) {
+                let html = '';
+
+                // API 头部
+                html += `
+                <div class="api-header">
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        <h2 class="mb-0">📖 ${escapeHtml(data.api.name)}</h2>
+                        <span class="version-badge">v${escapeHtml(data.api.version)}</span>
+                    </div>
+                    <p class="mb-1 opacity-75">${escapeHtml(data.api.description)}</p>
+                    <small class="opacity-50">Base URL: <code style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:4px;">${escapeHtml(data.api.base_url)}</code></small>
+                </div>`;
+
+                // TOC 目录
+                if (data.categories && data.categories.length > 0) {
+                    html += '<div class="toc-container"><h6>📑 目录</h6>';
+                    data.categories.forEach(function(cat) {
+                        html += `<a class="toc-link" href="#cat-${slugify(cat.name)}">${escapeHtml(cat.name)}</a>`;
+                    });
+                    if (data.enums) {
+                        html += '<a class="toc-link" href="#enums-section">枚举值参考</a>';
+                    }
+                    html += '</div>';
+                }
+
+                // 分类和端点
+                if (data.categories && data.categories.length > 0) {
+                    data.categories.forEach(function(category) {
+                        html += `
+                        <div class="category-card" id="cat-${slugify(category.name)}">
+                            <div class="category-header">
+                                <span class="cat-icon">${getCategoryIcon(category.name)}</span>
+                                <h5>${escapeHtml(category.name)}</h5>
+                                <span class="endpoint-count">${category.endpoints.length} 个接口</span>
+                            </div>`;
+
+                        category.endpoints.forEach(function(ep) {
+                            html += renderEndpoint(ep);
+                        });
+
+                        html += '</div>';
+                    });
+                }
+
+                // 枚举值
+                if (data.enums) {
+                    html += renderEnums(data.enums);
+                }
+
+                // 响应格式说明
+                html += renderResponseFormat(data.api.response_format);
+
+                $('#api-header-area').html(html);
+            }
+
+            function renderEndpoint(ep) {
+                let html = '<div class="endpoint-block">';
+
+                // 方法标签 + 路径
+                const methods = (ep.method || 'GET').split(/,\s*/);
+                html += '<div class="endpoint-title">';
+                methods.forEach(function(m) {
+                    html += `<span class="method-badge ${m.toLowerCase().trim()}">${m.trim()}</span>`;
+                });
+                html += `<span class="endpoint-path">${escapeHtml(ep.path)}</span>`;
+                if (ep.aliases && ep.aliases.length > 0) {
+                    ep.aliases.forEach(function(alias) {
+                        html += `<span class="alias-tag">别名: ${escapeHtml(alias)}</span>`;
+                    });
+                }
+                html += '</div>';
+
+                // 描述
+                html += `<p class="endpoint-desc">${escapeHtml(ep.description)}</p>`;
+
+                // 参数
+                if (ep.parameters && ep.parameters.length > 0) {
+                    html += '<div class="section-label">📥 请求参数</div>';
+                    html += '<div class="table-responsive"><table class="param-table">';
+                    html += '<thead><tr><th>参数名</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr></thead><tbody>';
+                    ep.parameters.forEach(function(p) {
+                        const required = p.required ? '<span class="param-required">是</span>' : '<span class="param-optional">否</span>';
+                        const defaultVal = p.default ? `<span class="param-default">${escapeHtml(String(p.default))}</span>` : '-';
+                        html += `<tr>
+                            <td><code>${escapeHtml(p.name)}</code></td>
+                            <td>${escapeHtml(p.type)}</td>
+                            <td>${required}</td>
+                            <td>${defaultVal}</td>
+                            <td>${escapeHtml(p.note || '')}</td>
+                        </tr>`;
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                // 示例请求
+                if (ep.example_request) {
+                    html += '<div class="section-label">📤 请求示例</div>';
+                    if (ep.example_request.curl) {
+                        html += `<div class="code-block curl"><strong style="color:#38bdf8;"># cURL</strong>\n${escapeHtml(ep.example_request.curl)}</div>`;
+                    }
+                    if (ep.example_request.python) {
+                        html += `<div class="code-block python" style="margin-top:8px;"><strong style="color:#4ade80;"># Python</strong>\n${escapeHtml(ep.example_request.python)}</div>`;
+                    }
+                }
+
+                // 示例响应
+                if (ep.example_response) {
+                    html += '<div class="section-label">📥 响应示例</div>';
+                    html += `<div class="response-json">${escapeHtml(JSON.stringify(ep.example_response, null, 2))}</div>`;
+                }
+
+                html += '</div>';
+                return html;
+            }
+
+            function renderEnums(enums) {
+                let html = '<div class="category-card" id="enums-section">';
+                html += '<div class="category-header"><span class="cat-icon">📋</span><h5>枚举值参考</h5></div>';
+                html += '<div style="padding:20px 24px;">';
+
+                const enumNames = {
+                    'quality_levels': '音质等级',
+                    'song_info_types': '歌曲信息类型',
+                    'download_formats': '下载格式',
+                    'search_types': '搜索类型'
+                };
+
+                Object.keys(enums).forEach(function(key) {
+                    const values = enums[key];
+                    if (!values || values.length === 0) return;
+
+                    html += `<div class="section-label">${enumNames[key] || key}</div>`;
+                    html += '<div class="table-responsive"><table class="enum-table"><thead><tr><th>值</th><th>说明</th></tr></thead><tbody>';
+                    values.forEach(function(v) {
+                        html += `<tr><td><code>${escapeHtml(v.value)}</code></td><td>${escapeHtml(v.label)}</td></tr>`;
+                    });
+                    html += '</tbody></table></div><br>';
+                });
+
+                html += '</div></div>';
+                return html;
+            }
+
+            function renderResponseFormat(format) {
+                if (!format) return '';
+
+                let html = '<div class="category-card">';
+                html += '<div class="category-header"><span class="cat-icon">📦</span><h5>统一响应格式</h5></div>';
+                html += '<div style="padding:20px 24px;">';
+
+                html += '<div class="section-label">✅ 成功响应</div>';
+                html += `<div class="response-json">${escapeHtml(JSON.stringify(format.success, null, 2))}</div>`;
+
+                html += '<div class="section-label" style="margin-top:14px;">❌ 错误响应</div>';
+                html += `<div class="response-json">${escapeHtml(JSON.stringify(format.error, null, 2))}</div>`;
+
+                html += '</div></div>';
+                return html;
+            }
+
+            function getCategoryIcon(name) {
+                if (name.indexOf('核心') !== -1) return '🎯';
+                if (name.indexOf('系统') !== -1 || name.indexOf('管理') !== -1) return '⚙️';
+                if (name.indexOf('同步') !== -1) return '⏰';
+                return '📌';
+            }
+
+            function slugify(text) {
+                return text.replace(/[^\w\u4e00-\u9fff]/g, '-').replace(/-+/g, '-').toLowerCase();
+            }
+
+            function escapeHtml(str) {
+                if (!str) return '';
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+        });
+    </script>
+</body>
+</html>

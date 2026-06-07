@@ -14,16 +14,20 @@ import sys
 import time
 import traceback
 import os
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import quote
 from flask import Flask, request, send_file, render_template, Response
 
+# 将 code/ 目录添加到 Python 路径，以支持模块导入
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'code'))
+
 try:
     from music_api import (
         NeteaseAPI, APIException, QualityLevel,
-        url_v1, name_v1, lyric_v1, search_music, 
+        url_v1, name_v1, lyric_v1, search_music,
         playlist_detail, album_detail
     )
     from cookie_manager import CookieManager, CookieException
@@ -192,7 +196,9 @@ class MusicAPIService:
             
             # 文件处理器
             try:
-                file_handler = logging.FileHandler('music_api.log', encoding='utf-8')
+                logs_dir = Path('logs')
+                logs_dir.mkdir(exist_ok=True)
+                file_handler = logging.FileHandler(str(logs_dir / 'music_api.log'), encoding='utf-8')
                 file_formatter = logging.Formatter(
                     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
                 )
@@ -290,7 +296,10 @@ class MusicAPIService:
 
 
 # 同步配置文件路径
-SYNC_CONFIG_FILE = 'sync_config.json'
+SYNC_CONFIG_FILE = str(Path('config') / 'sync_config.json')
+
+# 项目配置文件路径
+SETTINGS_CONFIG_FILE = str(Path('config') / 'settings.json')
 
 
 def load_sync_config_from_file() -> Dict[str, Any]:
@@ -376,6 +385,84 @@ def index() -> str:
 def config_page() -> str:
     """配置页面路由"""
     return render_template('config.html')
+
+
+@app.route('/api-docs')
+def api_docs_page() -> str:
+    """API 文档页面路由"""
+    return render_template('api-docs.html')
+
+
+@app.route('/api/api-docs', methods=['GET'])
+def api_docs_json():
+    """API 文档 JSON 端点"""
+    try:
+        import json
+        config_path = Path('config') / 'api.json'
+        if not config_path.exists():
+            return APIResponse.error("API 配置文件不存在", 404)
+        with open(config_path, 'r', encoding='utf-8') as f:
+            api_config = json.load(f)
+        return APIResponse.success(api_config, "API文档获取成功")
+    except Exception as e:
+        api_service.logger.error(f"获取API文档失败: {e}")
+        return APIResponse.error(f"获取API文档失败: {str(e)}", 500)
+
+
+@app.route('/logs')
+def logs_page() -> str:
+    """日志查看页面路由"""
+    return render_template('logs.html')
+
+
+@app.route('/api/logs', methods=['GET'])
+def api_logs():
+    """日志内容 API——支持指定文件名，返回最近 1000 行（倒序）"""
+    try:
+        logs_dir = Path('logs')
+        logs_dir.mkdir(exist_ok=True)
+
+        # 获取日志文件列表
+        log_files = sorted(
+            [f.name for f in logs_dir.glob('*.log')],
+            reverse=True
+        )
+
+        # 选择文件：参数指定 > 最新的 log
+        requested_file = request.args.get('file', '')
+        if requested_file:
+            log_path = logs_dir / requested_file
+            if not log_path.exists():
+                return APIResponse.error(f"日志文件 {requested_file} 不存在", 404)
+        else:
+            if not log_files:
+                return APIResponse.success({
+                    'files': [],
+                    'current_file': '',
+                    'lines': [],
+                    'total_lines': 0
+                }, "暂无日志文件")
+            log_path = logs_dir / log_files[0]
+
+        # 读取文件，只取最后 1000 行，倒序输出
+        max_lines = int(request.args.get('limit', 1000))
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            all_lines = f.readlines()
+
+        total_lines = len(all_lines)
+        recent_lines = all_lines[-max_lines:]
+        # 倒序
+        recent_lines.reverse()
+
+        return APIResponse.success({
+            'files': log_files,
+            'current_file': log_path.name,
+            'lines': [line.rstrip('\n\r') for line in recent_lines],
+            'total_lines': total_lines
+        }, "日志获取成功")
+    except Exception as e:
+        api_service.logger.error(f"获取日志失败: {e}")
+        return APIResponse.error(f"获取日志失败: {str(e)}", 500)
 
 
 @app.route('/health', methods=['GET'])
@@ -745,7 +832,9 @@ def api_info():
                 '/sync/status': 'GET - 获取同步状态',
                 '/sync/config': 'GET/POST - 获取/保存同步配置',
                 '/sync/now': 'POST - 立即执行同步',
-                '/api/info': 'GET - API信息'
+                '/api/info': 'GET - API信息',
+                '/api-docs': 'GET - API文档页面',
+                '/api/api-docs': 'GET - API文档JSON'
             },
             'supported_qualities': [
                 'standard', 'exhigh', 'lossless', 
@@ -881,7 +970,11 @@ def start_api_server():
         print(f"  ├─ GET  /sync/config   - 同步配置")
         print(f"  ├─ POST /sync/config   - 保存配置")
         print(f"  ├─ POST /sync/now      - 立即同步")
-        print(f"  └─ GET  /api/info      - API信息")
+        print(f"  ├─ GET  /api/info      - API信息")
+        print(f"  ├─ GET  /api-docs      - API文档页面")
+        print(f"  ├─ GET  /api/api-docs  - API文档JSON")
+        print(f"  ├─ GET  /logs          - 日志查看页面")
+        print(f"  └─ GET  /api/logs      - 日志内容API")
         print("\n🎵 支持的音质:")
         print(f"  standard, exhigh, lossless, hires, sky, jyeffect, jymaster")
         print("="*60)
@@ -922,7 +1015,21 @@ if __name__ == '__main__':
     except ImportError:
         pass  # .env文件不是必须的
     
-    # 从环境变量读取基础配置
+    # 加载 config/settings.json（优先级最高）
+    def load_settings_json() -> Dict[str, Any]:
+        """从 config/settings.json 加载项目配置"""
+        settings_path = Path('config') / 'settings.json'
+        if settings_path.exists():
+            try:
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    settings = load_settings_json()
+    
+    # 从环境变量读取基础配置（settings.json > .env > 默认值）
     def parse_env_list(env_var: str, default: str = "") -> List[str]:
         """解析环境变量中的列表（逗号分隔）"""
         value = os.getenv(env_var, default)
@@ -933,18 +1040,20 @@ if __name__ == '__main__':
     # 先尝试从sync_config.json加载同步配置
     file_config = load_sync_config_from_file()
     
-    # 更新全局config对象
-    config.host = os.getenv('HOST', '0.0.0.0')
-    config.port = int(os.getenv('PORT', '5000'))
-    config.debug = os.getenv('DEBUG', 'false').lower() == 'true'
-    config.downloads_dir = os.getenv('DOWNLOADS_DIR', 'downloads')
-    config.log_level = os.getenv('LOG_LEVEL', 'INFO')
+    # 更新全局config对象（settings.json > 环境变量 > 默认值）
+    config.host = settings.get('host', os.getenv('HOST', '0.0.0.0'))
+    config.port = int(settings.get('port', os.getenv('PORT', '5000')))
+    config.debug = settings.get('debug', os.getenv('DEBUG', 'false').lower() == 'true')
+    config.downloads_dir = settings.get('downloads_dir', os.getenv('DOWNLOADS_DIR', 'downloads'))
+    config.log_level = settings.get('log_level', os.getenv('LOG_LEVEL', 'INFO'))
+    config.max_file_size = int(settings.get('max_file_size', os.getenv('MAX_FILE_SIZE', str(config.max_file_size))))
+    config.request_timeout = int(settings.get('request_timeout', os.getenv('REQUEST_TIMEOUT', str(config.request_timeout))))
     # 定时同步配置：优先使用JSON文件配置，其次环境变量
-    config.enable_sync = file_config.get('enable_sync', os.getenv('ENABLE_SYNC', 'false').lower() == 'true')
-    config.playlist_ids = file_config.get('playlist_ids', parse_env_list('PLAYLIST_IDS'))
-    config.sync_quality = file_config.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless')))
-    config.sync_interval = int(file_config.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600')))
-    config.cron_expression = file_config.get('cron_expression', os.getenv('CRON_EXPRESSION', '')) or None
+    config.enable_sync = file_config.get('enable_sync', settings.get('enable_sync', os.getenv('ENABLE_SYNC', 'false').lower() == 'true'))
+    config.playlist_ids = file_config.get('playlist_ids', settings.get('playlist_ids', parse_env_list('PLAYLIST_IDS')))
+    config.sync_quality = file_config.get('sync_quality', settings.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless'))))
+    config.sync_interval = int(file_config.get('sync_interval', settings.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600'))))
+    config.cron_expression = file_config.get('cron_expression', settings.get('cron_expression', os.getenv('CRON_EXPRESSION', ''))) or None
     
     start_api_server()
 

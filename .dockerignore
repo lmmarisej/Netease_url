@@ -1,3 +1,14 @@
 LICENSE
 README.md
 .gitignore
+.git
+.vscode
+.idea
+__pycache__
+*.pyc
+*.pyo
+logs/
+downloads/
+config/sync_config.json
+.env
+*.md

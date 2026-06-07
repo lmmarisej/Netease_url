@@ -54,3 +54,24 @@
 2026-06-07 18:38:48,333 - music_api - INFO - after_request:346 - 响应状态: 200
 2026-06-07 18:38:52,377 - music_api - INFO - before_request:331 - GET / - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
 2026-06-07 18:38:52,377 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:04:37,955 - music_api - INFO - __init__:118 - 音乐API服务初始化完成，下载目录: D:\code_projects\Netease_url\downloads
+2026-06-07 19:04:40,973 - music_api - INFO - before_request:331 - GET / - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+2026-06-07 19:04:40,989 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:10,826 - music_api - INFO - before_request:331 - GET / - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:10,831 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:12,525 - music_api - INFO - before_request:331 - GET /api-docs - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:12,534 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:12,912 - music_api - INFO - before_request:331 - GET /api/api-docs - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:12,914 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:36,797 - music_api - INFO - before_request:331 - GET /config - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:36,800 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:36,986 - music_api - INFO - before_request:331 - GET /sync/config - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:36,987 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:37,849 - music_api - INFO - before_request:331 - GET / - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:37,850 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:39,208 - music_api - INFO - before_request:331 - GET /config - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:39,208 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:39,350 - music_api - INFO - before_request:331 - GET /sync/config - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:39,350 - music_api - INFO - after_request:346 - 响应状态: 200
+2026-06-07 19:05:39,733 - music_api - INFO - before_request:331 - GET / - IP: 127.0.0.1 - User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0
+2026-06-07 19:05:39,736 - music_api - INFO - after_request:346 - 响应状态: 200

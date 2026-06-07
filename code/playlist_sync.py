@@ -101,8 +101,10 @@ class PlaylistSyncService:
             
             # 文件处理器
             try:
-                log_file = Path('playlist_sync.log')
-                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                logs_dir = Path('logs')
+                logs_dir.mkdir(exist_ok=True)
+                log_file = logs_dir / 'playlist_sync.log'
+                file_handler = logging.FileHandler(str(log_file), encoding='utf-8')
                 file_formatter = logging.Formatter(
                     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
                 )

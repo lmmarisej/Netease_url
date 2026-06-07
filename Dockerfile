@@ -4,7 +4,8 @@ COPY requirements.txt requirements.txt
 RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     pip3 install --no-cache-dir -r requirements.txt
 COPY . .
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && \
+    mkdir -p /app/logs /app/downloads
 ENV TZ=Asia/Shanghai
 EXPOSE 5000
 CMD ["/app/entrypoint.sh"]

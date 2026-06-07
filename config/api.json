@@ -1,0 +1,377 @@
+{
+  "api": {
+    "name": "网易云音乐API服务",
+    "version": "2.0.0",
+    "description": "提供网易云音乐相关API服务，支持歌曲搜索、解析、下载、歌单同步等功能",
+    "base_url": "http://127.0.0.1:5000",
+    "response_format": {
+      "success": {
+        "status": 200,
+        "success": true,
+        "message": "string",
+        "data": "object | null"
+      },
+      "error": {
+        "status": 400,
+        "success": false,
+        "message": "string",
+        "error_code": "string | null"
+      }
+    }
+  },
+  "categories": [
+    {
+      "name": "核心业务",
+      "endpoints": [
+        {
+          "path": "/song",
+          "aliases": ["/Song_V1"],
+          "method": "GET, POST",
+          "description": "获取歌曲信息，支持获取URL、歌曲详情、歌词、完整JSON",
+          "parameters": [
+            {"name": "ids", "type": "string", "required": false, "note": "歌曲ID（与id/url三选一）"},
+            {"name": "id", "type": "string", "required": false, "note": "歌曲ID，同ids"},
+            {"name": "url", "type": "string", "required": false, "note": "网易云歌曲链接，支持短链接"},
+            {"name": "level", "type": "string", "required": false, "default": "lossless", "note": "音质等级"},
+            {"name": "type", "type": "string", "required": false, "default": "url", "note": "返回类型：url / name / lyric / json"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/song -H \"Content-Type: application/json\" -d '{\"id\":\"1860150460\",\"level\":\"lossless\",\"type\":\"json\"}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/song', json={'id': '1860150460', 'level': 'lossless', 'type': 'json'})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取歌曲信息成功",
+            "data": {
+              "id": "1860150460",
+              "name": "歌曲名称",
+              "ar_name": "艺术家",
+              "al_name": "专辑名称",
+              "pic": "https://...",
+              "level": "lossless",
+              "url": "https://...",
+              "size": "28.5 MB",
+              "lyric": "歌词内容",
+              "tlyric": "翻译歌词"
+            }
+          }
+        },
+        {
+          "path": "/search",
+          "aliases": ["/Search"],
+          "method": "GET, POST",
+          "description": "搜索音乐，支持按关键词搜索歌曲",
+          "parameters": [
+            {"name": "keyword", "type": "string", "required": true, "note": "搜索关键词（与keywords/q三选一）"},
+            {"name": "keywords", "type": "string", "required": false, "note": "同keyword"},
+            {"name": "q", "type": "string", "required": false, "note": "同keyword"},
+            {"name": "limit", "type": "integer", "required": false, "default": "30", "note": "返回数量，最大100"},
+            {"name": "offset", "type": "integer", "required": false, "default": "0", "note": "偏移量"},
+            {"name": "type", "type": "string", "required": false, "default": "1", "note": "搜索类型：1=歌曲, 10=专辑, 100=歌手, 1000=歌单"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/search -H \"Content-Type: application/json\" -d '{\"keyword\":\"晴天\",\"limit\":10}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/search', json={'keyword': '晴天', 'limit': 10})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "搜索完成",
+            "data": [
+              {
+                "id": "186016",
+                "title": "晴天",
+                "artist": "周杰伦",
+                "album": "叶惠美",
+                "artist_string": "周杰伦"
+              }
+            ]
+          }
+        },
+        {
+          "path": "/playlist",
+          "aliases": ["/Playlist"],
+          "method": "GET, POST",
+          "description": "获取歌单详情，返回歌单内所有歌曲信息",
+          "parameters": [
+            {"name": "id", "type": "string", "required": true, "note": "歌单ID或网易云歌单链接"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/playlist -H \"Content-Type: application/json\" -d '{\"id\":\"1234567890\"}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/playlist', json={'id': '1234567890'})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取歌单详情成功",
+            "data": {
+              "status": "success",
+              "playlist": {
+                "name": "歌单名称",
+                "tracks": []
+              }
+            }
+          }
+        },
+        {
+          "path": "/album",
+          "aliases": ["/Album"],
+          "method": "GET, POST",
+          "description": "获取专辑详情，返回专辑内所有歌曲信息",
+          "parameters": [
+            {"name": "id", "type": "string", "required": true, "note": "专辑ID或网易云专辑链接"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/album -H \"Content-Type: application/json\" -d '{\"id\":\"123456789\"}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/album', json={'id': '123456789'})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取专辑详情成功",
+            "data": {
+              "status": 200,
+              "album": {
+                "name": "专辑名称",
+                "songs": []
+              }
+            }
+          }
+        },
+        {
+          "path": "/download",
+          "aliases": ["/Download"],
+          "method": "GET, POST",
+          "description": "下载音乐文件，支持返回文件流或JSON信息",
+          "parameters": [
+            {"name": "id", "type": "string", "required": true, "note": "音乐ID或网易云链接"},
+            {"name": "quality", "type": "string", "required": false, "default": "lossless", "note": "音质等级"},
+            {"name": "format", "type": "string", "required": false, "default": "file", "note": "返回格式：file（文件下载）/ json（JSON信息）"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/download -H \"Content-Type: application/json\" -d '{\"id\":\"1860150460\",\"quality\":\"lossless\",\"format\":\"json\"}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/download', json={'id': '1860150460', 'quality': 'lossless', 'format': 'json'})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "下载完成",
+            "data": {
+              "music_id": "1860150460",
+              "name": "歌曲名称",
+              "artist": "艺术家",
+              "album": "专辑名",
+              "quality": "lossless",
+              "quality_name": "无损音质",
+              "file_type": "flac",
+              "file_size": 28500000,
+              "file_size_formatted": "27.2 MB",
+              "file_path": "/path/to/downloads/song.flac",
+              "filename": "歌曲名称 [lossless].flac",
+              "duration": 240000
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "系统管理",
+      "endpoints": [
+        {
+          "path": "/health",
+          "method": "GET",
+          "description": "健康检查，返回服务运行状态和Cookie状态",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/health",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/health')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "API服务运行正常",
+            "data": {
+              "service": "running",
+              "timestamp": 1712345678,
+              "cookie_status": "valid",
+              "downloads_dir": "/path/to/downloads",
+              "version": "2.0.0"
+            }
+          }
+        },
+        {
+          "path": "/api/info",
+          "method": "GET",
+          "description": "获取API服务信息，返回所有端点、支持的音质、当前配置",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/api/info",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/api/info')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "API信息获取成功",
+            "data": {
+              "name": "网易云音乐API服务",
+              "version": "2.0.0",
+              "endpoints": {},
+              "supported_qualities": [],
+              "config": {}
+            }
+          }
+        },
+        {
+          "path": "/api/api-docs",
+          "method": "GET",
+          "description": "获取API文档JSON数据，返回config/api.json中定义的所有接口信息",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/api/api-docs",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/api/api-docs')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "API文档获取成功",
+            "data": {
+              "api": {},
+              "categories": [],
+              "enums": {}
+            }
+          }
+        },
+        {
+          "path": "/api-docs",
+          "method": "GET",
+          "description": "API文档可视化页面，基于api/api-docs数据渲染的交互式文档",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/api-docs",
+            "note": "在浏览器中打开 http://127.0.0.1:5000/api-docs 查看可视化文档页面"
+          },
+          "example_response": {
+            "note": "返回HTML页面，非JSON格式"
+          }
+        }
+      ]
+    },
+    {
+      "name": "定时同步",
+      "endpoints": [
+        {
+          "path": "/sync/config",
+          "method": "GET",
+          "description": "获取定时同步配置，返回当前同步设置",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/sync/config",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/sync/config')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取同步配置成功",
+            "data": {
+              "enable_sync": true,
+              "playlist_ids": ["1234567890"],
+              "sync_quality": "lossless",
+              "sync_interval": 3600,
+              "cron_expression": ""
+            }
+          }
+        },
+        {
+          "path": "/sync/config",
+          "method": "POST",
+          "description": "保存定时同步配置，更新同步设置并重启同步服务",
+          "parameters": [
+            {"name": "enable_sync", "type": "boolean", "required": true, "note": "是否启用同步"},
+            {"name": "playlist_ids", "type": "string", "required": true, "note": "歌单ID列表，逗号分隔"},
+            {"name": "sync_quality", "type": "string", "required": false, "default": "lossless", "note": "同步音质"},
+            {"name": "sync_interval", "type": "integer", "required": false, "default": "3600", "note": "同步间隔（秒）"},
+            {"name": "cron_expression", "type": "string", "required": false, "note": "Cron表达式，留空使用间隔"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/sync/config -H \"Content-Type: application/json\" -d '{\"enable_sync\":true,\"playlist_ids\":\"1234567890\",\"sync_quality\":\"lossless\",\"sync_interval\":3600}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/sync/config', json={'enable_sync': True, 'playlist_ids': '1234567890', 'sync_quality': 'lossless', 'sync_interval': 3600})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "配置保存成功",
+            "data": {
+              "message": "配置已保存，同步服务已更新"
+            }
+          }
+        },
+        {
+          "path": "/sync/status",
+          "method": "GET",
+          "description": "获取定时同步状态，返回当前同步任务运行状态",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl http://127.0.0.1:5000/sync/status",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/sync/status')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取同步状态成功",
+            "data": {
+              "running": true,
+              "last_sync": "2024-01-01 12:00:00",
+              "next_sync": "2024-01-01 13:00:00"
+            }
+          }
+        },
+        {
+          "path": "/sync/now",
+          "method": "POST",
+          "description": "立即触发一次歌单同步，任务在后台执行",
+          "parameters": [],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/sync/now",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/sync/now')\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "同步任务已启动",
+            "data": {
+              "message": "同步任务已在后台启动"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "enums": {
+    "quality_levels": [
+      {"value": "standard", "label": "标准音质"},
+      {"value": "exhigh", "label": "极高音质"},
+      {"value": "lossless", "label": "无损音质"},
+      {"value": "hires", "label": "Hires音质"},
+      {"value": "sky", "label": "沉浸环绕声"},
+      {"value": "jyeffect", "label": "高清环绕声"},
+      {"value": "jymaster", "label": "超清母带"}
+    ],
+    "song_info_types": [
+      {"value": "url", "label": "获取歌曲URL"},
+      {"value": "name", "label": "获取歌曲基本信息"},
+      {"value": "lyric", "label": "获取歌词"},
+      {"value": "json", "label": "获取完整歌曲信息"}
+    ],
+    "download_formats": [
+      {"value": "file", "label": "直接下载文件"},
+      {"value": "json", "label": "返回JSON格式信息"}
+    ],
+    "search_types": [
+      {"value": "1", "label": "歌曲"},
+      {"value": "10", "label": "专辑"},
+      {"value": "100", "label": "歌手"},
+      {"value": "1000", "label": "歌单"}
+    ]
+  }
+}
