@@ -11,8 +11,30 @@
             background-color: #f8f9fa;
             color: #333;
         }
-        .container {
-            max-width: 800px;
+        .sidebar {
+            min-height: 100vh;
+            background-color: #fff;
+            border-right: 1px solid #dee2e6;
+        }
+        .sidebar .nav-link {
+            color: #495057;
+            padding: 12px 20px;
+            border-radius: 0;
+            transition: all 0.2s;
+        }
+        .sidebar .nav-link:hover {
+            background-color: #f8f9fa;
+            color: #0d6efd;
+        }
+        .sidebar .nav-link.active {
+            background-color: #0d6efd;
+            color: #fff;
+        }
+        .sidebar .nav-link i {
+            margin-right: 8px;
+        }
+        .content-area {
+            padding: 30px;
         }
         .form-group {
             margin-bottom: 15px;
@@ -86,21 +108,39 @@
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center mb-4">网易云音乐工具箱</h1>
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <form id="main-form">
-                    <div class="mb-3">
-                        <label class="form-label">功能选择</label>
-                        <select id="mode-select" class="form-select">
-                            <option value="search">歌曲搜索</option>
-                            <option value="parse">单曲解析</option>
-                            <option value="playlist">歌单解析</option>
-                            <option value="album">专辑解析</option>
-                            <option value="download">音乐下载</option>
-                        </select>
-                    </div>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 左侧导航栏 -->
+            <div class="col-md-3 col-lg-2 sidebar p-0">
+                <div class="p-3 border-bottom">
+                    <h5 class="mb-0">🎵 网易云工具箱</h5>
+                </div>
+                <nav class="nav flex-column mt-3">
+                    <a class="nav-link active" href="/">
+                        <i>🏠</i> 业务操作
+                    </a>
+                    <a class="nav-link" href="/config">
+                        <i>⚙️</i> 定时同步配置
+                    </a>
+                </nav>
+            </div>
+
+            <!-- 右侧内容区 -->
+            <div class="col-md-9 col-lg-10 content-area">
+                <h4 class="mb-4"> 网易云音乐工具箱</h4>
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <form id="main-form">
+                            <div class="mb-3">
+                                <label class="form-label">功能选择</label>
+                                <select id="mode-select" class="form-select">
+                                    <option value="search">歌曲搜索</option>
+                                    <option value="parse">单曲解析</option>
+                                    <option value="playlist">歌单解析</option>
+                                    <option value="album">专辑解析</option>
+                                    <option value="download">音乐下载</option>
+                                </select>
+                            </div>
                     <div id="search-area">
                         <div class="mb-3">
                             <label for="search_keywords" class="form-label">搜索关键词</label>
@@ -247,6 +287,8 @@
                 </div>
             </div>
             <ul class="list-group mt-3" id="album-tracks"></ul>
+        </div>
+            </div>
         </div>
     </div>
     <!-- Modal for big picture -->

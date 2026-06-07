@@ -1,5 +1,5 @@
 services:
-  netease-url:
+  netease-music-downloader:
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,4 +7,16 @@ services:
       - .env
     ports:
       - "5000:5000"
-    restart: unless-stopped
+    volumes:
+      # 核心：把冒号后面的路径改成 /app/downloads (加个 s)
+      - /vol3/1000/音乐/网易云/Download:/app/downloads
+    environment:
+      - PORT=5000
+      - LEVEL=lossless
+      - COOKIE='你的完整Cookie'
+      # 定时同步配置
+      - ENABLE_SYNC=true
+      - PLAYLIST_IDS=你的歌单ID1,你的歌单ID2
+      - SYNC_QUALITY=lossless
+      - SYNC_INTERVAL=3600
+      # - CRON_EXPRESSION=0 2 * * *  # 可选：每天凌晨2点同步

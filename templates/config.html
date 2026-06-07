@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定时同步配置 - 网易云音乐工具箱</title>
+    <link href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .sidebar {
+            min-height: 100vh;
+            background-color: #fff;
+            border-right: 1px solid #dee2e6;
+        }
+        .sidebar .nav-link {
+            color: #495057;
+            padding: 12px 20px;
+            border-radius: 0;
+            transition: all 0.2s;
+        }
+        .sidebar .nav-link:hover {
+            background-color: #f8f9fa;
+            color: #0d6efd;
+        }
+        .sidebar .nav-link.active {
+            background-color: #0d6efd;
+            color: #fff;
+        }
+        .sidebar .nav-link i {
+            margin-right: 8px;
+        }
+        .content-area {
+            padding: 30px;
+        }
+        .config-card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            padding: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 左侧导航栏 -->
+            <div class="col-md-3 col-lg-2 sidebar p-0">
+                <div class="p-3 border-bottom">
+                    <h5 class="mb-0">🎵 网易云工具箱</h5>
+                </div>
+                <nav class="nav flex-column mt-3">
+                    <a class="nav-link" href="/">
+                        <i>🏠</i> 业务操作
+                    </a>
+                    <a class="nav-link active" href="/config">
+                        <i>⚙️</i> 定时同步配置
+                    </a>
+                </nav>
+            </div>
+
+            <!-- 右侧内容区 -->
+            <div class="col-md-9 col-lg-10 content-area">
+                <h4 class="mb-4">⚙️ 定时同步配置</h4>
+                
+                <div class="config-card">
+                    <div class="mb-4">
+                        <label class="form-check-label">
+                            <input type="checkbox" id="sync-enable" class="form-check-input"> 
+                            <strong>启用定时同步</strong>
+                        </label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="sync-playlist-ids" class="form-label">歌单ID列表</label>
+                        <input type="text" id="sync-playlist-ids" class="form-control" placeholder="例如: 1234567890,9876543210（多个用逗号分隔）">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="sync-quality" class="form-label">同步音质</label>
+                        <select id="sync-quality" class="form-select">
+                            <option value="standard">标准音质</option>
+                            <option value="exhigh">极高音质</option>
+                            <option value="lossless" selected>无损音质</option>
+                            <option value="hires">Hires音质</option>
+                            <option value="sky">沉浸环绕声</option>
+                            <option value="jyeffect">高清环绕声</option>
+                            <option value="jymaster">超清母带</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="sync-interval" class="form-label">同步间隔（秒）</label>
+                        <input type="number" id="sync-interval" class="form-control" value="3600" min="60">
+                        <small class="text-muted">建议: 3600=1小时, 86400=1天</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="sync-cron" class="form-label">Cron表达式（可选，留空使用间隔）</label>
+                        <input type="text" id="sync-cron" class="form-control" placeholder="例如: 0 2 * * * (每天凌晨2点)">
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex">
+                        <button type="button" id="sync-save-btn" class="btn btn-primary flex-fill">💾 保存配置</button>
+                        <button type="button" id="sync-now-btn" class="btn btn-warning flex-fill">🔄 立即同步</button>
+                    </div>
+
+                    <div id="sync-status-msg" class="mt-3 d-none"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // 加载同步配置
+            function loadSyncConfig() {
+                $.get('/sync/config', function(data) {
+                    if (data.status === 200 && data.data) {
+                        const cfg = data.data;
+                        $('#sync-enable').prop('checked', cfg.enable_sync);
+                        if (cfg.playlist_ids && Array.isArray(cfg.playlist_ids)) {
+                            $('#sync-playlist-ids').val(cfg.playlist_ids.join(','));
+                        } else if (cfg.playlist_ids) {
+                            $('#sync-playlist-ids').val(cfg.playlist_ids);
+                        }
+                        $('#sync-quality').val(cfg.sync_quality || 'lossless');
+                        $('#sync-interval').val(cfg.sync_interval || 3600);
+                        $('#sync-cron').val(cfg.cron_expression || '');
+                    }
+                }, 'json');
+            }
+
+            // 保存同步配置
+            $('#sync-save-btn').on('click', function() {
+                const config = {
+                    enable_sync: $('#sync-enable').is(':checked'),
+                    playlist_ids: $('#sync-playlist-ids').val().trim(),
+                    sync_quality: $('#sync-quality').val(),
+                    sync_interval: parseInt($('#sync-interval').val()) || 3600,
+                    cron_expression: $('#sync-cron').val().trim()
+                };
+
+                if (config.enable_sync && !config.playlist_ids) {
+                    alert('启用同步时必须填写歌单ID！');
+                    return;
+                }
+
+                $('#sync-save-btn').prop('disabled', true).text('保存中...');
+
+                $.ajax({
+                    url: '/sync/config',
+                    method: 'POST',
+                    data: JSON.stringify(config),
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    success: function(data) {
+                        $('#sync-status-msg').removeClass('d-none alert-danger').addClass('alert alert-success').html('✅ ' + data.message);
+                        setTimeout(function() { $('#sync-status-msg').addClass('d-none'); }, 3000);
+                    },
+                    error: function() {
+                        $('#sync-status-msg').removeClass('d-none alert-success').addClass('alert alert-danger').html('❌ 保存失败，请重试');
+                    },
+                    complete: function() {
+                        $('#sync-save-btn').prop('disabled', false).text('💾 保存配置');
+                    }
+                });
+            });
+
+            // 立即同步
+            $('#sync-now-btn').on('click', function() {
+                $('#sync-now-btn').prop('disabled', true).text('同步中...');
+
+                $.ajax({
+                    url: '/sync/now',
+                    method: 'POST',
+                    dataType: 'json',
+                    success: function(data) {
+                        if (data.success) {
+                            $('#sync-status-msg').removeClass('d-none alert-danger').addClass('alert alert-info').html('🔄 ' + data.message);
+                        } else {
+                            $('#sync-status-msg').removeClass('d-none alert-info').addClass('alert alert-warning').html('⚠️ ' + data.message);
+                        }
+                    },
+                    error: function() {
+                        $('#sync-status-msg').removeClass('d-none').addClass('alert alert-danger').html('❌ 同步失败，请先保存配置并确保启用同步');
+                    },
+                    complete: function() {
+                        $('#sync-now-btn').prop('disabled', false).text(' 立即同步');
+                        setTimeout(function() { $('#sync-status-msg').addClass('d-none'); }, 5000);
+                    }
+                });
+            });
+
+            // 页面加载时读取配置
+            loadSyncConfig();
+        });
+    </script>
+</body>
+</html>

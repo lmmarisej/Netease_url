@@ -6,15 +6,17 @@
 - 歌单和专辑详情
 - 音乐下载
 - 健康检查
+- 定时歌单同步
 """
 
 import logging
 import sys
 import time
 import traceback
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import quote
 from flask import Flask, request, send_file, render_template, Response
 
@@ -26,6 +28,7 @@ try:
     )
     from cookie_manager import CookieManager, CookieException
     from music_downloader import MusicDownloader, DownloadException, AudioFormat
+    from playlist_sync import PlaylistSyncConfig, PlaylistSyncService, init_sync_service, get_sync_service
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
@@ -43,6 +46,16 @@ class APIConfig:
     request_timeout: int = 30
     log_level: str = 'INFO'
     cors_origins: str = '*'
+    # 定时同步配置
+    enable_sync: bool = False
+    playlist_ids: List[str] = None
+    sync_quality: str = 'lossless'
+    sync_interval: int = 3600
+    cron_expression: str = None
+
+    def __post_init__(self):
+        if self.playlist_ids is None:
+            self.playlist_ids = []
 
 
 class APIResponse:
@@ -87,7 +100,81 @@ class MusicAPIService:
         self.downloads_path = Path(config.downloads_dir)
         self.downloads_path.mkdir(exist_ok=True)
         
+        # 初始化 sync_service 为 None
+        self.sync_service = None
+        
+        # 从JSON配置文件加载同步配置（优先于环境变量）
+        file_config = load_sync_config_from_file()
+        if file_config.get('enable_sync', False) and file_config.get('playlist_ids'):
+            config.enable_sync = True
+            config.playlist_ids = file_config.get('playlist_ids', [])
+            config.sync_quality = file_config.get('sync_quality', 'lossless')
+            config.sync_interval = file_config.get('sync_interval', 3600)
+            config.cron_expression = file_config.get('cron_expression', '')
+        
+        # 初始化定时同步服务
+        self._init_sync_service()
+        
         self.logger.info(f"音乐API服务初始化完成，下载目录: {self.downloads_path.absolute()}")
+    
+    def _init_sync_service(self):
+        """初始化定时同步服务"""
+        if self.sync_service:
+            try:
+                self.sync_service.stop()
+            except Exception:
+                pass
+        
+        self.sync_service = None
+        if self.config.enable_sync and self.config.playlist_ids:
+            try:
+                sync_config = PlaylistSyncConfig(
+                    playlist_ids=self.config.playlist_ids,
+                    quality=self.config.sync_quality,
+                    sync_interval=self.config.sync_interval,
+                    cron_expression=self.config.cron_expression if self.config.cron_expression else None,
+                    download_dir=self.config.downloads_dir
+                )
+                self.sync_service = init_sync_service(sync_config)
+                self.logger.info(f"定时同步服务已配置，歌单数量: {len(self.config.playlist_ids)}")
+            except Exception as e:
+                self.logger.error(f"初始化定时同步服务失败: {e}")
+    
+    def reload_sync_config(self, new_config: Dict[str, Any]) -> bool:
+        """重新加载同步配置（从Web界面调用）"""
+        try:
+            enable = new_config.get('enable_sync', False)
+            playlist_ids = new_config.get('playlist_ids', [])
+            if isinstance(playlist_ids, str):
+                playlist_ids = [pid.strip() for pid in playlist_ids.split(',') if pid.strip()]
+            
+            self.config.enable_sync = enable
+            self.config.playlist_ids = playlist_ids
+            self.config.sync_quality = new_config.get('sync_quality', 'lossless')
+            self.config.sync_interval = int(new_config.get('sync_interval', 3600))
+            self.config.cron_expression = new_config.get('cron_expression', '')
+            
+            # 保存到JSON文件
+            save_sync_config_to_file({
+                'enable_sync': enable,
+                'playlist_ids': playlist_ids,
+                'sync_quality': self.config.sync_quality,
+                'sync_interval': self.config.sync_interval,
+                'cron_expression': self.config.cron_expression
+            })
+            
+            # 重新初始化同步服务
+            self._init_sync_service()
+            
+            # 如果新启用了同步，立即启动
+            if self.sync_service and enable:
+                self.sync_service.start()
+            
+            self.logger.info(f"同步配置已更新: enable={enable}, playlist_ids={playlist_ids}")
+            return True
+        except Exception as e:
+            self.logger.error(f"重新加载同步配置失败: {e}")
+            return False
     
     def _setup_logger(self) -> logging.Logger:
         """设置日志记录器"""
@@ -202,9 +289,38 @@ class MusicAPIService:
             return {}
 
 
+# 同步配置文件路径
+SYNC_CONFIG_FILE = 'sync_config.json'
+
+
+def load_sync_config_from_file() -> Dict[str, Any]:
+    """从JSON文件加载同步配置"""
+    config_path = Path(SYNC_CONFIG_FILE)
+    if config_path.exists():
+        try:
+            import json
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_sync_config_to_file(config_data: Dict[str, Any]) -> bool:
+    """保存同步配置到JSON文件"""
+    try:
+        import json
+        config_path = Path(SYNC_CONFIG_FILE)
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 # 创建Flask应用和服务实例
 config = APIConfig()
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 api_service = MusicAPIService(config)
 
 
@@ -254,6 +370,12 @@ def handle_internal_error(e):
 def index() -> str:
     """首页路由"""
     return render_template('index.html')
+
+
+@app.route('/config')
+def config_page() -> str:
+    """配置页面路由"""
+    return render_template('config.html')
 
 
 @app.route('/health', methods=['GET'])
@@ -620,6 +742,9 @@ def api_info():
                 '/playlist': 'GET/POST - 获取歌单详情',
                 '/album': 'GET/POST - 获取专辑详情',
                 '/download': 'GET/POST - 下载音乐',
+                '/sync/status': 'GET - 获取同步状态',
+                '/sync/config': 'GET/POST - 获取/保存同步配置',
+                '/sync/now': 'POST - 立即执行同步',
                 '/api/info': 'GET - API信息'
             },
             'supported_qualities': [
@@ -629,7 +754,9 @@ def api_info():
             'config': {
                 'downloads_dir': str(api_service.downloads_path.absolute()),
                 'max_file_size': f"{config.max_file_size // (1024*1024)}MB",
-                'request_timeout': f"{config.request_timeout}s"
+                'request_timeout': f"{config.request_timeout}s",
+                'sync_enabled': config.enable_sync,
+                'sync_playlist_count': len(config.playlist_ids) if config.playlist_ids else 0
             }
         }
         
@@ -638,6 +765,86 @@ def api_info():
     except Exception as e:
         api_service.logger.error(f"获取API信息异常: {e}")
         return APIResponse.error(f"获取API信息失败: {str(e)}", 500)
+
+
+@app.route('/sync/config', methods=['GET'])
+def get_sync_config():
+    """获取同步配置"""
+    try:
+        file_config = load_sync_config_from_file()
+        if file_config:
+            config_data = file_config
+        else:
+            config_data = {
+                'enable_sync': config.enable_sync,
+                'playlist_ids': config.playlist_ids,
+                'sync_quality': config.sync_quality,
+                'sync_interval': config.sync_interval,
+                'cron_expression': config.cron_expression or ''
+            }
+        return APIResponse.success(config_data, "获取同步配置成功")
+    except Exception as e:
+        api_service.logger.error(f"获取同步配置异常: {e}")
+        return APIResponse.error(f"获取同步配置失败: {str(e)}", 500)
+
+
+@app.route('/sync/config', methods=['POST'])
+def save_sync_config():
+    """保存同步配置（从Web界面）"""
+    try:
+        data = api_service._safe_get_request_data()
+        
+        if api_service.reload_sync_config(data):
+            return APIResponse.success(
+                {'message': '配置已保存，同步服务已更新'},
+                "配置保存成功"
+            )
+        else:
+            return APIResponse.error("配置保存失败", 500)
+    except Exception as e:
+        api_service.logger.error(f"保存同步配置异常: {e}")
+        return APIResponse.error(f"保存同步配置失败: {str(e)}", 500)
+
+
+@app.route('/sync/status', methods=['GET'])
+def get_sync_status():
+    """获取定时同步状态"""
+    try:
+        sync_service = get_sync_service()
+        
+        if not sync_service:
+            return APIResponse.error("定时同步服务未启用", 400)
+        
+        status = sync_service.get_sync_status()
+        return APIResponse.success(status, "获取同步状态成功")
+        
+    except Exception as e:
+        api_service.logger.error(f"获取同步状态异常: {e}")
+        return APIResponse.error(f"获取同步状态失败: {str(e)}", 500)
+
+
+@app.route('/sync/now', methods=['POST'])
+def trigger_sync_now():
+    """立即执行歌单同步"""
+    try:
+        sync_service = get_sync_service()
+        
+        if not sync_service:
+            return APIResponse.error("定时同步服务未启用", 400)
+        
+        # 在后台线程执行同步
+        from threading import Thread
+        thread = Thread(target=sync_service.sync_all_playlists, daemon=True)
+        thread.start()
+        
+        return APIResponse.success(
+            {'message': '同步任务已在后台启动'},
+            "同步任务已启动"
+        )
+        
+    except Exception as e:
+        api_service.logger.error(f"触发同步异常: {e}")
+        return APIResponse.error(f"触发同步失败: {str(e)}", 500)
 
 
 def start_api_server():
@@ -649,6 +856,20 @@ def start_api_server():
         print(f"📡 服务地址: http://{config.host}:{config.port}")
         print(f"📁 下载目录: {api_service.downloads_path.absolute()}")
         print(f"📋 日志级别: {config.log_level}")
+        
+        # 显示定时同步配置
+        if config.enable_sync and config.playlist_ids:
+            print("\n⏰ 定时同步服务:")
+            print(f"  ├─ 启用状态: ✓ 已启用")
+            print(f"  ├─ 歌单数量: {len(config.playlist_ids)}")
+            print(f"  ├─ 同步音质: {config.sync_quality}")
+            if config.cron_expression:
+                print(f"  └─ Cron表达式: {config.cron_expression}")
+            else:
+                print(f"  └─ 同步间隔: {config.sync_interval}秒")
+        else:
+            print("\n⏰ 定时同步服务: ✗ 未启用")
+        
         print("\n📚 API端点:")
         print(f"  ├─ GET  /health        - 健康检查")
         print(f"  ├─ POST /song          - 获取歌曲信息")
@@ -656,12 +877,23 @@ def start_api_server():
         print(f"  ├─ POST /playlist      - 获取歌单详情")
         print(f"  ├─ POST /album         - 获取专辑详情")
         print(f"  ├─ POST /download      - 下载音乐")
+        print(f"  ├─ GET  /sync/status   - 同步状态")
+        print(f"  ├─ GET  /sync/config   - 同步配置")
+        print(f"  ├─ POST /sync/config   - 保存配置")
+        print(f"  ├─ POST /sync/now      - 立即同步")
         print(f"  └─ GET  /api/info      - API信息")
         print("\n🎵 支持的音质:")
         print(f"  standard, exhigh, lossless, hires, sky, jyeffect, jymaster")
         print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
+        
+        # 启动定时同步服务
+        if api_service.sync_service:
+            try:
+                api_service.sync_service.start()
+            except Exception as e:
+                api_service.logger.error(f"启动定时同步服务失败: {e}")
         
         # 启动Flask应用
         app.run(
@@ -673,6 +905,9 @@ def start_api_server():
         
     except KeyboardInterrupt:
         print("\n\n👋 服务已停止")
+        # 停止定时同步服务
+        if api_service.sync_service:
+            api_service.sync_service.stop()
     except Exception as e:
         api_service.logger.error(f"启动服务失败: {e}")
         print(f"❌ 启动失败: {e}")
@@ -680,5 +915,36 @@ def start_api_server():
 
 
 if __name__ == '__main__':
+    # 加载.env文件
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass  # .env文件不是必须的
+    
+    # 从环境变量读取基础配置
+    def parse_env_list(env_var: str, default: str = "") -> List[str]:
+        """解析环境变量中的列表（逗号分隔）"""
+        value = os.getenv(env_var, default)
+        if not value:
+            return []
+        return [item.strip() for item in value.split(',') if item.strip()]
+    
+    # 先尝试从sync_config.json加载同步配置
+    file_config = load_sync_config_from_file()
+    
+    # 更新全局config对象
+    config.host = os.getenv('HOST', '0.0.0.0')
+    config.port = int(os.getenv('PORT', '5000'))
+    config.debug = os.getenv('DEBUG', 'false').lower() == 'true'
+    config.downloads_dir = os.getenv('DOWNLOADS_DIR', 'downloads')
+    config.log_level = os.getenv('LOG_LEVEL', 'INFO')
+    # 定时同步配置：优先使用JSON文件配置，其次环境变量
+    config.enable_sync = file_config.get('enable_sync', os.getenv('ENABLE_SYNC', 'false').lower() == 'true')
+    config.playlist_ids = file_config.get('playlist_ids', parse_env_list('PLAYLIST_IDS'))
+    config.sync_quality = file_config.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless')))
+    config.sync_interval = int(file_config.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600')))
+    config.cron_expression = file_config.get('cron_expression', os.getenv('CRON_EXPRESSION', '')) or None
+    
     start_api_server()
 
