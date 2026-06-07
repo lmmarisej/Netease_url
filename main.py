@@ -837,11 +837,32 @@ def download_music_api():
                 task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='未找到音乐信息', error='歌曲不存在')
                 return APIResponse.error("未找到音乐信息", 404)
             
-            # 获取音乐下载链接
+            # 获取音乐下载链接（支持音质降级）
             task_manager.update_task(task.task_id, message='正在获取下载链接...', progress=30)
-            url_info = url_v1(music_id, quality, cookies)
-            if not url_info or 'data' not in url_info or not url_info['data'] or not url_info['data'][0].get('url'):
-                task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='无法获取下载链接', error='版权限制或音质不支持')
+            quality_order = ['jymaster', 'sky', 'jyeffect', 'hires', 'lossless', 'exhigh', 'standard']
+            actual_quality = quality
+            url_info = None
+
+            # 从请求的音质开始，逐级降级尝试
+            try:
+                start_idx = quality_order.index(quality) if quality in quality_order else len(quality_order) - 1
+            except ValueError:
+                start_idx = len(quality_order) - 1
+
+            for q in quality_order[start_idx:]:
+                url_info = url_v1(music_id, q, cookies)
+                if url_info and url_info.get('data') and len(url_info['data']) > 0 and url_info['data'][0].get('url'):
+                    actual_quality = q
+                    if q != quality:
+                        task_manager.update_task(task.task_id, message=f'请求的音质不可用，已降级为 {q}', progress=35)
+                        api_service.logger.info(f"音质降级: {quality} -> {q} for {music_id}")
+                    break
+                else:
+                    api_service.logger.info(f"音质 {q} 不可用 for {music_id}，尝试下一级")
+                    url_info = None
+
+            if not url_info:
+                task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='所有音质均不可用', error='版权限制或音质不支持')
                 return APIResponse.error("无法获取音乐下载链接，可能是版权限制或音质不支持", 404)
             
             # 构建音乐信息
@@ -853,7 +874,7 @@ def download_music_api():
             task_manager.update_task(task.task_id, name=song_name, extra={
                 'artist': artist_name,
                 'album': song_data['al']['name'],
-                'quality': quality
+                'quality': actual_quality
             })
             
             music_info = {
@@ -869,7 +890,7 @@ def download_music_api():
             }
             
             # 生成安全文件名
-            safe_name = f"{music_info['name']} [{quality}]"
+            safe_name = f"{music_info['name']} [{actual_quality}]"
             safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
             filename = f"{safe_name}.{music_info['file_type']}"
             
@@ -878,7 +899,7 @@ def download_music_api():
             # 检查文件是否已存在
             if file_path.exists():
                 api_service.logger.info(f"文件已存在: {filename}")
-                operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={quality} (文件已存在)")
+                operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (文件已存在)")
                 task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
             else:
                 # 使用优化后的下载器下载
@@ -894,7 +915,7 @@ def download_music_api():
                     
                     file_path = Path(download_result.file_path)
                     api_service.logger.info(f"下载完成: {filename}")
-                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={quality}")
+                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality}")
                     task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
                     
                 except DownloadException as e:
