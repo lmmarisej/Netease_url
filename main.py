@@ -1270,6 +1270,79 @@ def start_api_server():
         sys.exit(1)
 
 
+# ===== 消息推送 =====
+PUSH_CONFIG_FILE = str(Path('config') / 'push_config.json')
+
+
+def _load_push_config():
+    if Path(PUSH_CONFIG_FILE).exists():
+        with open(PUSH_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {'pushes': []}
+
+
+def _save_push_config(data):
+    with open(PUSH_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+@app.route('/magicpush')
+def magicpush_page():
+    """消息推送页面"""
+    return render_template('magicpush.html')
+
+
+@app.route('/api/push/config', methods=['GET'])
+def get_push_config():
+    """获取推送配置"""
+    try:
+        return APIResponse.success(_load_push_config(), "获取推送配置成功")
+    except Exception as e:
+        return APIResponse.error(f"获取推送配置失败: {str(e)}", 500)
+
+
+@app.route('/api/push/config', methods=['POST'])
+def save_push_config():
+    """保存推送配置"""
+    try:
+        data = api_service._safe_get_request_data()
+        _save_push_config(data)
+        return APIResponse.success(None, "推送配置已保存")
+    except Exception as e:
+        return APIResponse.error(f"保存推送配置失败: {str(e)}", 500)
+
+
+@app.route('/api/push/send', methods=['POST'])
+def send_push():
+    """发送推送消息到指定URL"""
+    try:
+        data = api_service._safe_get_request_data()
+        url = data.get('url', '').strip()
+        title = data.get('title', '')
+        content = data.get('content', '')
+        push_type = data.get('type', 'text')
+
+        if not url:
+            return APIResponse.error("推送URL不能为空", 400)
+
+        payload = {
+            'title': title,
+            'content': content,
+            'type': push_type
+        }
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code == 200:
+            return APIResponse.success({'status_code': r.status_code}, "推送成功")
+        else:
+            return APIResponse.error(f"推送失败: HTTP {r.status_code} {r.text[:200]}", 400)
+    except requests.exceptions.Timeout:
+        return APIResponse.error("推送超时", 500)
+    except requests.exceptions.ConnectionError:
+        return APIResponse.error("无法连接到推送地址", 500)
+    except Exception as e:
+        return APIResponse.error(f"推送失败: {str(e)}", 500)
+
+
 if __name__ == '__main__':
     # 加载.env文件
     try:
