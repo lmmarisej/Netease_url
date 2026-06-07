@@ -75,6 +75,25 @@
         </div>
     </div>
 
+    <!-- 文本编辑 Modal -->
+    <div class="modal fade" id="edit-modal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title">✏ 编辑：<span id="edit-filename"></span></h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea id="edit-content" class="form-control" style="font-family:monospace;font-size:13px;min-height:400px;resize:vertical;"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-primary btn-sm" onclick="saveEdit()">💾 保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" style="position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;"></div>
 
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
@@ -125,6 +144,10 @@
                 var actions = $('<td></td>');
                 if (isAudio) {
                     actions.append('<button class="btn btn-outline-primary btn-xs me-1" onclick="playAudio(\'' + f.name + '\')">▶ 播放</button>');
+                }
+                var isText = !isAudio && !/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(f.name);
+                if (isText) {
+                    actions.append('<button class="btn btn-outline-info btn-xs me-1" onclick="editFile(\'' + f.name + '\')">✏ 编辑</button>');
                 }
                 actions.append('<button class="btn btn-outline-secondary btn-xs me-1" onclick="downloadFile(\'' + f.name + '\')">⬇ 下载</button>');
                 actions.append('<button class="btn btn-outline-danger btn-xs" onclick="deleteFile(\'' + f.name + '\')">🗑 删除</button>');
@@ -177,6 +200,34 @@
         function toggleSelectAll() {
             var checked = $('#select-all').prop('checked');
             $('.file-check').prop('checked', checked);
+        }
+
+        // ---- 文本编辑 ----
+        let editingFile = '';
+        function editFile(filename) {
+            editingFile = filename;
+            $.get('/api/files/read/' + encodeURIComponent(filename), function(data) {
+                if (data.status === 200) {
+                    $('#edit-content').val(data.data.content);
+                    $('#edit-filename').text(filename);
+                    $('#edit-modal').modal('show');
+                } else {
+                    showToast(data.message || '读取失败', 'error');
+                }
+            }, 'json').fail(function() { showToast('读取文件失败', 'error'); });
+        }
+        function saveEdit() {
+            var content = $('#edit-content').val();
+            $.ajax({
+                url: '/api/files/save', method: 'POST',
+                data: JSON.stringify({ filename: editingFile, content: content }),
+                contentType: 'application/json', dataType: 'json',
+                success: function(d) {
+                    showToast(d.message || '已保存', 'success');
+                    $('#edit-modal').modal('hide');
+                },
+                error: function() { showToast('保存失败', 'error'); }
+            });
         }
 
         $(function() { loadFiles(); });

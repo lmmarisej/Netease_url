@@ -1451,6 +1451,42 @@ def api_files_stream(filename):
         return APIResponse.error(f"文件传输失败: {str(e)}", 500)
 
 
+@app.route('/api/files/read/<path:filename>', methods=['GET'])
+def api_files_read(filename):
+    """读取文本文件内容"""
+    try:
+        file_path = Path(config.downloads_dir) / filename
+        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+            return APIResponse.error("非法文件路径", 403)
+        if not file_path.exists():
+            return APIResponse.error("文件不存在", 404)
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        return APIResponse.success({'filename': filename, 'content': content}, "文件读取成功")
+    except Exception as e:
+        return APIResponse.error(f"读取文件失败: {str(e)}", 500)
+
+
+@app.route('/api/files/save', methods=['POST'])
+def api_files_save():
+    """保存文本文件内容"""
+    try:
+        data = api_service._safe_get_request_data()
+        filename = data.get('filename', '').strip()
+        content = data.get('content', '')
+        if not filename:
+            return APIResponse.error("文件名不能为空", 400)
+        file_path = Path(config.downloads_dir) / filename
+        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+            return APIResponse.error("非法文件路径", 403)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        api_service.logger.info(f"文件已保存: {filename}")
+        return APIResponse.success({'filename': filename}, "文件保存成功")
+    except Exception as e:
+        return APIResponse.error(f"保存文件失败: {str(e)}", 500)
+
+
 if __name__ == '__main__':
     # 加载.env文件
     try:
