@@ -22,7 +22,10 @@ docker-compose up -d
 | 路径 | 页面 | 功能 |
 |------|------|------|
 | `/` | 业务操作 | 歌曲搜索、单曲/歌单/专辑解析、音乐下载 |
-| `/config` | 配置 | 同步配置 & Cookie 管理 |
+| `/files` | 文件管理 | 本地下载文件浏览、音频播放、删除管理 |
+| `/config` | 配置 | 同步配置、下载配置 & Cookie 管理 |
+| `/magicpush` | 消息推送 | 推送配置管理 + 事件模板管理 |
+| `/tasks` | 任务监控 | 实时下载任务进度跟踪 |
 | `/api-docs` | API 接口文档 | 全部 API 端点说明与示例 |
 | `/logs` | 运行日志 | 实时查看服务日志（3s 刷新） |
 
@@ -32,9 +35,21 @@ docker-compose up -d
 
 ![业务操作](screenshots/index.png)
 
-#### ⚙️ 定时同步配置 — 歌单管理 / 音质选择 / Cron 调度
+#### 📁 文件管理 — 文件浏览 / 音频播放
 
-![定时同步配置](screenshots/config.png)
+![文件管理](screenshots/files.png)
+
+#### ⚙️ 配置 — 同步 / 下载 / Cookie 管理
+
+![配置](screenshots/config.png)
+
+#### 📨 消息推送 — 推送配置 / 事件关联 / 模板管理
+
+![消息推送](screenshots/magicpush.png)
+
+#### 📊 任务监控 — 下载进度跟踪
+
+![任务监控](screenshots/tasks.png)
 
 #### 📖 API 接口文档 — 折叠式端点说明
 
@@ -86,15 +101,27 @@ docker-compose up -d
 │   ├── music_downloader.py # 下载器
 │   ├── playlist_sync.py    # 定时同步
 │   ├── cookie_manager.py   # Cookie 管理
-│   └── qr_login.py         # 扫码登录
+y│   ├── qr_login.py         # 扫码登录
+│   ├── task_manager.py     # 任务管理器
+│   ├── event_bus.py        # 事件总线（发布/订阅）
+│   └── push_manager.py     # 消息推送管理
 ├── config/
 │   ├── settings.json       # 运行配置
 │   ├── api.json            # API 文档定义
 │   ├── sync_config.json    # 同步配置（运行时生成）
+│   ├── push_config.json    # 推送配置 + 事件模板
 │   └── cookie.txt          # Cookie 配置
 ├── templates/              # Web 页面
+│   ├── index.html          # 业务操作
+│   ├── files.html          # 文件管理
+│   ├── config.html         # 配置
+│   ├── magicpush.html      # 消息推送
+│   ├── tasks.html          # 任务监控
+│   ├── logs.html           # 运行日志
+│   └── api-docs.html       # API 文档
 ├── logs/                   # 日志文件
-└── downloads/              # 下载目录
+├── downloads/              # 下载目录
+└── screenshots/            # 截图
 ```
 
 ## ⚠️ 注意事项
