@@ -6,220 +6,325 @@
     <title>定时同步配置 - 网易云音乐工具箱</title>
     <link href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            background-color: #f8f9fa;
-            color: #333;
-        }
-        .sidebar {
-            min-height: 100vh;
-            background-color: #fff;
-            border-right: 1px solid #dee2e6;
-        }
-        .sidebar .nav-link {
-            color: #495057;
-            padding: 12px 20px;
-            border-radius: 0;
-            transition: all 0.2s;
-        }
-        .sidebar .nav-link:hover {
-            background-color: #f8f9fa;
-            color: #0d6efd;
-        }
-        .sidebar .nav-link.active {
-            background-color: #0d6efd;
-            color: #fff;
-        }
-        .sidebar .nav-link i {
-            margin-right: 8px;
-        }
-        .content-area {
-            padding: 30px;
-        }
-        .config-card {
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            padding: 30px;
-        }
+        body { background-color: #f5f6fa; color: #333; }
+        .sidebar { min-height: 100vh; background-color: #fff; border-right: 1px solid #dee2e6; }
+        .sidebar .nav-link { color: #495057; padding: 12px 20px; border-radius: 0; transition: all 0.2s; }
+        .sidebar .nav-link:hover { background-color: #f8f9fa; color: #0d6efd; }
+        .sidebar .nav-link.active { background-color: #0d6efd; color: #fff; }
+        .sidebar .nav-link i { margin-right: 8px; }
+        .content-area { padding: 24px 30px; }
+        .page-title { font-weight: 700; font-size: 22px; margin-bottom: 20px; }
+
+        .section-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 24px; margin-bottom: 16px; }
+        .section-card h6 { font-weight: 700; margin-bottom: 16px; color: #3a3f5c; }
+
+        /* 开关样式 */
+        .toggle-switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #ccc; border-radius: 28px; transition: 0.3s; }
+        .toggle-slider:before { content: ""; position: absolute; height: 22px; width: 22px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s; }
+        input:checked + .toggle-slider { background: #22c55e; }
+        input:checked + .toggle-slider:before { transform: translateX(24px); }
+
+        .sync-status-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .sync-status-bar.enabled { background: #d1fae5; color: #065f46; }
+        .sync-status-bar.disabled { background: #f3f4f6; color: #6b7280; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .status-dot.on { background: #22c55e; }
+        .status-dot.off { background: #9ca3af; }
+
+        .config-section { display: none; }
+        .config-section.visible { display: block; }
+
+        .schedule-mode .btn { font-size: 13px; }
+
+        .playlist-tag { display: inline-flex; align-items: center; gap: 6px; background: #f0f4ff; color: #4f46e5; padding: 4px 12px; border-radius: 16px; font-size: 13px; margin: 3px 4px 3px 0; }
+        .playlist-tag .remove { cursor: pointer; opacity: 0.6; font-size: 11px; }
+        .playlist-tag .remove:hover { opacity: 1; color: #dc2626; }
+
+        .sync-history-item { padding: 8px 0; border-bottom: 1px solid #f2f3f7; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+        .sync-history-item:last-child { border-bottom: none; }
+        .sync-history-item .time { color: #999; font-size: 12px; white-space: nowrap; }
+        .sync-history-item .status-icon { font-size: 16px; }
     </style>
 </head>
 <body>
     <div class="container-fluid">
         <div class="row">
-            <!-- 左侧导航栏 -->
             <div class="col-md-3 col-lg-2 sidebar p-0">
-                <div class="p-3 border-bottom">
-                    <h5 class="mb-0">🎵 网易云工具箱</h5>
-                </div>
+                <div class="p-3 border-bottom"><h5 class="mb-0">🎵 网易云工具箱</h5></div>
                 <nav class="nav flex-column mt-3">
-                    <a class="nav-link" href="/">
-                        <i>🏠</i> 业务操作
-                    </a>
-                    <a class="nav-link active" href="/config">
-                        <i>⚙️</i> 定时同步配置
-                    </a>
-                    <a class="nav-link" href="/tasks">
-                        <i>📊</i> 任务监控
-                    </a>
-                    <a class="nav-link" href="/logs">
-                        <i>📋</i> 运行日志
-                    </a>
-                    <a class="nav-link" href="/api-docs">
-                        <i>📖</i> API 接口文档
-                    </a>
+                    <a class="nav-link" href="/"><i>🏠</i> 业务操作</a>
+                    <a class="nav-link active" href="/config"><i>⚙️</i> 定时同步配置</a>
+                    <a class="nav-link" href="/tasks"><i>📊</i> 任务监控</a>
+                    <a class="nav-link" href="/logs"><i>📋</i> 运行日志</a>
+                    <a class="nav-link" href="/api-docs"><i>📖</i> API 接口文档</a>
                 </nav>
             </div>
 
-            <!-- 右侧内容区 -->
             <div class="col-md-9 col-lg-10 content-area">
-                <h4 class="mb-4">⚙️ 定时同步配置</h4>
-                
-                <div class="config-card">
-                    <div class="mb-4">
-                        <label class="form-check-label">
-                            <input type="checkbox" id="sync-enable" class="form-check-input"> 
-                            <strong>启用定时同步</strong>
+                <div class="page-title">⚙️ 定时同步配置</div>
+
+                <!-- 同步状态条 -->
+                <div class="sync-status-bar disabled" id="sync-status-bar">
+                    <span class="status-dot off" id="status-dot"></span>
+                    <span id="status-text">同步服务未启用</span>
+                    <span class="ms-auto text-muted small" id="status-extra"></span>
+                </div>
+
+                <!-- 开关卡片 -->
+                <div class="section-card">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h6 class="mb-1">启用定时同步</h6>
+                            <small class="text-muted">开启后将按设定周期自动同步歌单到本地</small>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="sync-enable">
+                            <span class="toggle-slider"></span>
                         </label>
                     </div>
+                </div>
 
-                    <div class="mb-3">
-                        <label for="sync-playlist-ids" class="form-label">歌单ID列表</label>
-                        <input type="text" id="sync-playlist-ids" class="form-control" placeholder="例如: 1234567890,9876543210（多个用逗号分隔）">
+                <!-- 配置区域（启用时显示） -->
+                <div class="config-section" id="config-section">
+                    <!-- 歌单管理 -->
+                    <div class="section-card">
+                        <h6>📋 歌单管理</h6>
+                        <div class="input-group mb-2" style="max-width:500px;">
+                            <input type="text" id="playlist-add-input" class="form-control" placeholder="输入歌单ID或链接" onkeydown="if(event.key==='Enter')addPlaylist()">
+                            <button class="btn btn-outline-primary" onclick="addPlaylist()">添加</button>
+                        </div>
+                        <div id="playlist-tags" class="mt-2"></div>
+                        <small class="text-muted">支持网易云歌单链接，自动提取 ID</small>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="sync-quality" class="form-label">同步音质</label>
-                        <select id="sync-quality" class="form-select">
-                            <option value="standard">标准音质</option>
-                            <option value="exhigh">极高音质</option>
-                            <option value="lossless" selected>无损音质</option>
-                            <option value="hires">Hires音质</option>
-                            <option value="sky">沉浸环绕声</option>
-                            <option value="jyeffect">高清环绕声</option>
-                            <option value="jymaster">超清母带</option>
-                        </select>
+                    <!-- 音质 -->
+                    <div class="section-card">
+                        <h6>🎵 同步音质</h6>
+                        <div class="btn-group" id="quality-btns">
+                            <button class="btn btn-outline-secondary btn-sm" data-q="standard">标准</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-q="exhigh">极高</button>
+                            <button class="btn btn-outline-primary btn-sm active" data-q="lossless">无损</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-q="hires">Hi-Res</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-q="sky">环绕声</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-q="jyeffect">高清环绕</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-q="jymaster">母带</button>
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="sync-interval" class="form-label">同步间隔（秒）</label>
-                        <input type="number" id="sync-interval" class="form-control" value="3600" min="60">
-                        <small class="text-muted">建议: 3600=1小时, 86400=1天</small>
+                    <!-- 调度方式 -->
+                    <div class="section-card">
+                        <h6>⏰ 调度方式</h6>
+                        <div class="btn-group mb-3 schedule-mode" id="schedule-mode">
+                            <button class="btn btn-outline-secondary btn-sm active" data-mode="interval">固定间隔</button>
+                            <button class="btn btn-outline-secondary btn-sm" data-mode="cron">Cron 表达式</button>
+                        </div>
+                        <div id="mode-interval">
+                            <select id="sync-interval" class="form-select" style="max-width:300px;">
+                                <option value="600">10 分钟</option>
+                                <option value="1800">30 分钟</option>
+                                <option value="3600" selected>1 小时</option>
+                                <option value="7200">2 小时</option>
+                                <option value="21600">6 小时</option>
+                                <option value="43200">12 小时</option>
+                                <option value="86400">24 小时</option>
+                            </select>
+                        </div>
+                        <div id="mode-cron" style="display:none;">
+                            <input type="text" id="sync-cron" class="form-control" style="max-width:300px;" placeholder="0 2 * * *">
+                            <small class="text-muted">格式: 分 时 日 月 周。例如 <code>0 2 * * *</code> = 每天凌晨2点</small>
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="sync-cron" class="form-label">Cron表达式（可选，留空使用间隔）</label>
-                        <input type="text" id="sync-cron" class="form-control" placeholder="例如: 0 2 * * * (每天凌晨2点)">
+                    <!-- 操作按钮 -->
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-primary" id="save-btn" onclick="saveConfig()">💾 保存配置</button>
+                        <button class="btn btn-warning" id="sync-now-btn" onclick="syncNow()">🔄 立即同步一次</button>
                     </div>
-
-                    <div class="d-grid gap-2 d-md-flex">
-                        <button type="button" id="sync-save-btn" class="btn btn-primary flex-fill">💾 保存配置</button>
-                        <button type="button" id="sync-now-btn" class="btn btn-warning flex-fill">🔄 立即同步</button>
-                    </div>
-
-                    <div id="sync-status-msg" class="mt-3 d-none"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Toast 容器 -->
+    <!-- Toast -->
     <div id="toast-container" style="position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;"></div>
 
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
     <script>
+        let currentQuality = 'lossless';
+        let scheduleMode = 'interval';
+        let playlistIds = [];
+
         function showToast(msg, type) {
             type = type || 'info';
             const bg = { success: '#d1fae5', error: '#fee2e2', warning: '#fef3c7', info: '#dbeafe' };
             const color = { success: '#065f46', error: '#991b1b', warning: '#92400e', info: '#1e40af' };
             const icon = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
-            const $t = $('<div style="background:' + (bg[type] || bg.info) + ';color:' + (color[type] || color.info) + ';padding:10px 18px;border-radius:8px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:toastIn 0.3s ease;max-width:380px;">' + (icon[type] || '') + ' ' + msg + '</div>');
+            const $t = $('<div style="background:' + (bg[type] || bg.info) + ';color:' + (color[type] || color.info) + ';padding:10px 18px;border-radius:8px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-width:380px;">' + (icon[type] || '') + ' ' + msg + '</div>');
             $('#toast-container').append($t);
             setTimeout(function() { $t.fadeOut(300, function() { $t.remove(); }); }, 2000);
         }
-        $(document).ready(function() {
-            // 加载同步配置
-            function loadSyncConfig() {
-                $.get('/sync/config', function(data) {
-                    if (data.status === 200 && data.data) {
-                        const cfg = data.data;
-                        $('#sync-enable').prop('checked', cfg.enable_sync);
-                        if (cfg.playlist_ids && Array.isArray(cfg.playlist_ids)) {
-                            $('#sync-playlist-ids').val(cfg.playlist_ids.join(','));
-                        } else if (cfg.playlist_ids) {
-                            $('#sync-playlist-ids').val(cfg.playlist_ids);
-                        }
-                        $('#sync-quality').val(cfg.sync_quality || 'lossless');
-                        $('#sync-interval').val(cfg.sync_interval || 3600);
-                        $('#sync-cron').val(cfg.cron_expression || '');
-                    }
-                }, 'json');
-            }
 
-            // 保存同步配置
-            $('#sync-save-btn').on('click', function() {
-                const config = {
-                    enable_sync: $('#sync-enable').is(':checked'),
-                    playlist_ids: $('#sync-playlist-ids').val().trim(),
-                    sync_quality: $('#sync-quality').val(),
-                    sync_interval: parseInt($('#sync-interval').val()) || 3600,
-                    cron_expression: $('#sync-cron').val().trim()
-                };
-
-                if (config.enable_sync && !config.playlist_ids) {
-                    showToast('启用同步时必须填写歌单ID', 'warning');
-                    return;
+        $(function() {
+            // 开关切换
+            $('#sync-enable').on('change', function() {
+                if (this.checked) {
+                    $('#config-section').addClass('visible').slideDown(200);
+                } else {
+                    $('#config-section').removeClass('visible').slideUp(200);
                 }
-
-                $('#sync-save-btn').prop('disabled', true).text('保存中...');
-
-                $.ajax({
-                    url: '/sync/config',
-                    method: 'POST',
-                    data: JSON.stringify(config),
-                    contentType: 'application/json',
-                    dataType: 'json',
-                    success: function(data) {
-                        $('#sync-status-msg').removeClass('d-none alert-danger').addClass('alert alert-success').html('✅ ' + data.message);
-                        setTimeout(function() { $('#sync-status-msg').addClass('d-none'); }, 3000);
-                    },
-                    error: function() {
-                        $('#sync-status-msg').removeClass('d-none alert-success').addClass('alert alert-danger').html('❌ 保存失败，请重试');
-                    },
-                    complete: function() {
-                        $('#sync-save-btn').prop('disabled', false).text('💾 保存配置');
-                    }
-                });
             });
 
-            // 立即同步
-            $('#sync-now-btn').on('click', function() {
-                $('#sync-now-btn').prop('disabled', true).text('同步中...');
-
-                $.ajax({
-                    url: '/sync/now',
-                    method: 'POST',
-                    dataType: 'json',
-                    success: function(data) {
-                        if (data.success) {
-                            $('#sync-status-msg').removeClass('d-none alert-danger').addClass('alert alert-info').html('🔄 ' + data.message);
-                        } else {
-                            $('#sync-status-msg').removeClass('d-none alert-info').addClass('alert alert-warning').html('⚠️ ' + data.message);
-                        }
-                    },
-                    error: function() {
-                        $('#sync-status-msg').removeClass('d-none').addClass('alert alert-danger').html('❌ 同步失败，请先保存配置并确保启用同步');
-                    },
-                    complete: function() {
-                        $('#sync-now-btn').prop('disabled', false).text(' 立即同步');
-                        setTimeout(function() { $('#sync-status-msg').addClass('d-none'); }, 5000);
-                    }
-                });
+            // 音质选择
+            $('#quality-btns .btn').on('click', function() {
+                $('#quality-btns .btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
+                $(this).addClass('active btn-primary').removeClass('btn-outline-secondary');
+                currentQuality = $(this).data('q');
             });
 
-            // 页面加载时读取配置
-            loadSyncConfig();
+            // 调度方式切换
+            $('#schedule-mode .btn').on('click', function() {
+                $('#schedule-mode .btn').removeClass('active');
+                $(this).addClass('active');
+                scheduleMode = $(this).data('mode');
+                $('#mode-interval, #mode-cron').hide();
+                $('#mode-' + scheduleMode).show();
+            });
+
+            // 加载配置
+            loadConfig();
+            loadStatus();
+            setInterval(loadStatus, 10000); // 10秒刷新状态
         });
+
+        // ===== 歌单标签管理 =====
+        function addPlaylist() {
+            const val = $('#playlist-add-input').val().trim();
+            if (!val) return showToast('请输入歌单ID或链接', 'warning');
+            let id = val;
+            const m = val.match(/playlist\?id=(\d+)/);
+            if (m) id = m[1];
+            if (!/^\d+$/.test(id)) return showToast('无效的歌单ID', 'warning');
+            if (playlistIds.indexOf(id) >= 0) return showToast('该歌单已在列表中', 'warning');
+            playlistIds.push(id);
+            $('#playlist-add-input').val('');
+            renderPlaylists();
+        }
+
+        function removePlaylist(id) {
+            playlistIds = playlistIds.filter(function(i) { return i !== id; });
+            renderPlaylists();
+        }
+
+        function renderPlaylists() {
+            const $c = $('#playlist-tags').empty();
+            if (playlistIds.length === 0) {
+                $c.html('<small class="text-muted">尚未添加歌单</small>');
+                return;
+            }
+            playlistIds.forEach(function(id) {
+                $c.append('<span class="playlist-tag">📋 ' + escHtml(id) + ' <span class="remove" onclick="removePlaylist(\'' + id + '\')">✕</span></span>');
+            });
+        }
+
+        // ===== 配置加载/保存 =====
+        function loadConfig() {
+            $.get('/sync/config', function(data) {
+                if (data.status === 200 && data.data) {
+                    const cfg = data.data;
+                    $('#sync-enable').prop('checked', cfg.enable_sync).trigger('change');
+                    if (cfg.playlist_ids) {
+                        if (Array.isArray(cfg.playlist_ids)) playlistIds = cfg.playlist_ids;
+                        else if (typeof cfg.playlist_ids === 'string') playlistIds = cfg.playlist_ids.split(',').map(s => s.trim()).filter(Boolean);
+                    }
+                    currentQuality = cfg.sync_quality || 'lossless';
+                    $('#quality-btns .btn').removeClass('active btn-primary').addClass('btn-outline-secondary');
+                    $('#quality-btns .btn[data-q="' + currentQuality + '"]').addClass('active btn-primary').removeClass('btn-outline-secondary');
+                    $('#sync-interval').val(cfg.sync_interval || 3600);
+                    if (cfg.cron_expression) {
+                        scheduleMode = 'cron';
+                        $('#sync-cron').val(cfg.cron_expression);
+                    } else {
+                        scheduleMode = 'interval';
+                    }
+                    $('#schedule-mode .btn').removeClass('active');
+                    $('#schedule-mode .btn[data-mode="' + scheduleMode + '"]').addClass('active');
+                    $('#mode-interval, #mode-cron').hide();
+                    $('#mode-' + scheduleMode).show();
+                    renderPlaylists();
+                }
+            }, 'json');
+        }
+
+        function saveConfig() {
+            const enable = $('#sync-enable').is(':checked');
+            if (enable && playlistIds.length === 0) return showToast('请至少添加一个歌单ID', 'warning');
+
+            const config = {
+                enable_sync: enable,
+                playlist_ids: playlistIds.join(','),
+                sync_quality: currentQuality,
+                sync_interval: parseInt($('#sync-interval').val()) || 3600,
+                cron_expression: scheduleMode === 'cron' ? $('#sync-cron').val().trim() : ''
+            };
+
+            const $btn = $('#save-btn').prop('disabled', true).text('保存中...');
+            $.ajax({
+                url: '/sync/config', method: 'POST',
+                data: JSON.stringify(config), contentType: 'application/json', dataType: 'json',
+                success: function(data) {
+                    showToast(data.message || '配置已保存', 'success');
+                    loadStatus();
+                },
+                error: function() { showToast('保存失败', 'error'); },
+                complete: function() { $btn.prop('disabled', false).text('💾 保存配置'); }
+            });
+        }
+
+        function syncNow() {
+            const $btn = $('#sync-now-btn').prop('disabled', true).text('同步中...');
+            $.ajax({
+                url: '/sync/now', method: 'POST', dataType: 'json',
+                success: function(data) {
+                    showToast(data.message || '同步已启动', data.success ? 'success' : 'warning');
+                },
+                error: function() { showToast('同步失败，请先保存配置并启用', 'error'); },
+                complete: function() { $btn.prop('disabled', false).text('🔄 立即同步一次'); }
+            });
+        }
+
+        // ===== 状态刷新 =====
+        function loadStatus() {
+            $.get('/sync/status', function(data) {
+                const $bar = $('#sync-status-bar');
+                if (data.status === 200 && data.data) {
+                    const s = data.data;
+                    $bar.removeClass('disabled').addClass('enabled');
+                    $('#status-dot').removeClass('off').addClass('on');
+                    $('#status-text').text(s.running ? '同步服务运行中' : '同步服务已配置');
+                    let extra = '';
+                    if (s.last_sync) extra += '上次同步: ' + s.last_sync;
+                    if (s.next_sync) extra += (extra ? ' | ' : '') + '下次同步: ' + s.next_sync;
+                    $('#status-extra').text(extra);
+                } else {
+                    $bar.removeClass('enabled').addClass('disabled');
+                    $('#status-dot').removeClass('on').addClass('off');
+                    $('#status-text').text('同步服务未启用');
+                    $('#status-extra').text('');
+                }
+            }, 'json').fail(function() {
+                $('#sync-status-bar').removeClass('enabled').addClass('disabled');
+                $('#status-dot').removeClass('on').addClass('off');
+                $('#status-text').text('同步服务未启用');
+            });
+        }
+
+        function escHtml(s) {
+            if (!s) return '';
+            const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+        }
     </script>
 </body>
 </html>

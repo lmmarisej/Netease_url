@@ -335,6 +335,26 @@ def save_sync_config_to_file(config_data: Dict[str, Any]) -> bool:
         return False
 
 
+# 操作日志记录器
+def _setup_operation_logger():
+    """设置操作历史日志（歌单解析、下载记录）"""
+    op_logger = logging.getLogger('operation')
+    op_logger.setLevel(logging.INFO)
+    if not op_logger.handlers:
+        logs_dir = Path('logs')
+        logs_dir.mkdir(exist_ok=True)
+        handler = RotatingFileHandler(
+            str(logs_dir / 'operation.log'),
+            maxBytes=2 * 1024 * 1024,
+            backupCount=3,
+            encoding='utf-8'
+        )
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+        op_logger.addHandler(handler)
+    return op_logger
+
+operation_logger = _setup_operation_logger()
+
 # 创建Flask应用和服务实例
 config = APIConfig()
 app = Flask(__name__, template_folder='templates')
@@ -738,6 +758,9 @@ def get_playlist():
             'playlist': result
         }
         
+        # 记录操作日志
+        playlist_name = result.get('name', '未知歌单') if result else '未知歌单'
+        operation_logger.info(f"[歌单解析] ID={playlist_id} 名称={playlist_name}")
         return APIResponse.success(response_data, "获取歌单详情成功")
         
     except Exception as e:
@@ -855,6 +878,7 @@ def download_music_api():
             # 检查文件是否已存在
             if file_path.exists():
                 api_service.logger.info(f"文件已存在: {filename}")
+                operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={quality} (文件已存在)")
                 task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
             else:
                 # 使用优化后的下载器下载
@@ -870,6 +894,7 @@ def download_music_api():
                     
                     file_path = Path(download_result.file_path)
                     api_service.logger.info(f"下载完成: {filename}")
+                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={quality}")
                     task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
                     
                 except DownloadException as e:
