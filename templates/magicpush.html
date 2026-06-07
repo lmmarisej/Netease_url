@@ -31,6 +31,19 @@
         .url-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #f9fafb; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
         .url-row .url-text { flex: 1; word-break: break-all; font-family: monospace; font-size: 12px; }
         .btn-xs { font-size: 11px; padding: 3px 10px; }
+        .event-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .event-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 14px; font-size: 12px; background: #e0e7ff; color: #3730a3; cursor: pointer; transition: all 0.2s; }
+        .event-chip:hover { background: #c7d2fe; }
+        .event-chip.selected { background: #4f46e5; color: #fff; }
+        .event-chip .remove { font-size: 14px; line-height: 1; margin-left: 2px; }
+        .event-picker-dropdown { position: relative; display: inline-block; }
+        .event-dropdown-menu { position: absolute; top: 100%; left: 0; z-index: 100; background: #fff; border: 1px solid #d1d5db; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-height: 300px; overflow-y: auto; min-width: 300px; display: none; }
+        .event-dropdown-menu.show { display: block; }
+        .event-dropdown-item { padding: 6px 12px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+        .event-dropdown-item:hover { background: #f3f4f6; }
+        .event-dropdown-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .event-category-label { padding: 8px 12px 2px; font-size: 11px; color: #9ca3af; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .template-hint { font-size: 11px; color: #9ca3af; margin-top: 3px; }
     </style>
 </head>
 <body>
@@ -68,6 +81,12 @@
     <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
     <script>
         let pushConfig = { pushes: [] };
+        let eventCatalog = [];
+
+        const CATEGORY_COLORS = {
+            '服务生命周期': '#6b7280', 'API 操作': '#0891b2', '下载事件': '#dc2626',
+            '同步事件': '#7c3aed', '任务管理': '#ea580c', '配置变更': '#059669', '错误事件': '#b91c1c'
+        };
 
         function showToast(msg, type) {
             type = type || 'info';
@@ -81,13 +100,36 @@
 
         function genId() { return 'p' + Date.now() + '_' + Math.random().toString(36).substr(2, 6); }
 
-        $(function() { loadConfig(); });
+        function getEventName(type) {
+            for (var i = 0; i < eventCatalog.length; i++) {
+                var cat = eventCatalog[i];
+                for (var j = 0; j < cat.events.length; j++) {
+                    if (cat.events[j].type === type) return cat.events[j].name;
+                }
+            }
+            return type;
+        }
+
+        $(function() {
+            $.get('/api/events/catalog', function(data) {
+                if (data.status === 200 && data.data) { eventCatalog = data.data; }
+            }, 'json').always(function() { loadConfig(); });
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.event-picker-dropdown').length) {
+                    $('.event-dropdown-menu').removeClass('show');
+                }
+            });
+        });
 
         function loadConfig() {
             $.get('/api/push/config', function(data) {
                 if (data.status === 200 && data.data) {
                     pushConfig = data.data;
                     if (!pushConfig.pushes) pushConfig.pushes = [];
+                    pushConfig.pushes.forEach(function(p) {
+                        if (!p.events) p.events = [];
+                        if (!p.event_template) p.event_template = { title: '', content: '', type: 'text' };
+                    });
                 }
                 render();
             }, 'json').fail(function() { showToast('加载配置失败', 'error'); });
@@ -107,7 +149,8 @@
         function addPush() {
             pushConfig.pushes.push({
                 id: genId(), name: '新推送', title: '', content: '',
-                type: 'text', enabled: true, collapsed: false, urls: []
+                type: 'text', enabled: true, collapsed: false,
+                events: [], event_template: { title: '', content: '', type: 'text' }, urls: []
             });
             render();
         }
@@ -133,23 +176,32 @@
             if (p) { p.urls = p.urls.filter(function(u) { return u.id !== urlId; }); render(); }
         }
 
+        function toggleEvent(pushId, eventType) {
+            var p = pushConfig.pushes.find(function(x) { return x.id === pushId; });
+            if (!p) return;
+            if (!p.events) p.events = [];
+            var idx = p.events.indexOf(eventType);
+            if (idx >= 0) { p.events.splice(idx, 1); }
+            else { p.events.push(eventType); }
+            render();
+        }
+
         function testPush(pushId, urlId) {
             var p = pushConfig.pushes.find(function(x) { return x.id === pushId; });
             var u = null;
-            if (p) {
-                u = p.urls.find(function(x) { return x.id === urlId; });
-            }
+            if (p) { u = p.urls.find(function(x) { return x.id === urlId; }); }
             var url = u ? u.url : '';
             if (!url) return showToast('请先填写推送地址', 'warning');
+            var tpl = (p && p.event_template) ? p.event_template : {};
             $.ajax({
                 url: '/api/push/send', method: 'POST',
                 data: JSON.stringify({
-                    url: url, title: p ? p.title : '',
-                    content: p ? p.content : '', type: p ? p.type : 'text'
+                    url: url,
+                    title: tpl.title || p.title || '测试消息',
+                    content: tpl.content || p.content || '这是一条测试消息',
+                    type: tpl.type || p.type || 'text'
                 }), contentType: 'application/json', dataType: 'json',
-                success: function(data) {
-                    showToast(data.message || '推送成功', data.success ? 'success' : 'error');
-                },
+                success: function(data) { showToast(data.message || '推送成功', data.success ? 'success' : 'error'); },
                 error: function(xhr) {
                     var msg = (xhr.responseJSON && xhr.responseJSON.message) || '推送失败';
                     showToast(msg, 'error');
@@ -160,6 +212,14 @@
         function updateField(pushId, field, value) {
             var p = pushConfig.pushes.find(function(x) { return x.id === pushId; });
             if (p) p[field] = value;
+        }
+
+        function updateTemplateField(pushId, field, value) {
+            var p = pushConfig.pushes.find(function(x) { return x.id === pushId; });
+            if (p) {
+                if (!p.event_template) p.event_template = { title: '', content: '', type: 'text' };
+                p.event_template[field] = value;
+            }
         }
 
         function updateUrl(pushId, urlId, field, value) {
@@ -173,32 +233,81 @@
         function render() {
             var $list = $('#push-list').empty();
             if (pushConfig.pushes.length === 0) {
-                $list.html('<div class="text-muted text-center py-4">暂无推送配置</div>');
+                $list.html('<div class="text-muted text-center py-4">暂无推送配置，点击「新增推送」开始</div>');
                 return;
             }
             pushConfig.pushes.forEach(function(p) {
+                if (!p.events) p.events = [];
+                if (!p.event_template) p.event_template = { title: '', content: '', type: 'text' };
+
                 var card = $('<div class="push-card"></div>');
                 var header = $('<div class="push-card-header"></div>');
                 header.append('<span style="font-size:18px;">' + (p.collapsed ? '▶' : '▼') + '</span>');
                 header.append('<strong>' + escHtml(p.name || '未命名') + '</strong>');
-                header.append('<span style="margin-left:auto;"></span>');
+                var chipsHtml = '';
+                (p.events || []).forEach(function(evt) {
+                    chipsHtml += '<span class="event-chip selected" style="font-size:11px;padding:1px 8px;">' + getEventName(evt) + '</span>';
+                });
+                if (chipsHtml) header.append('<span style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;">' + chipsHtml + '</span>');
+                else header.append('<span style="margin-left:auto;"></span>');
                 header.append('<label class="toggle-switch"><input type="checkbox" ' + (p.enabled ? 'checked' : '') + ' onchange="updateField(\'' + p.id + '\',\'enabled\',this.checked);render()"><span class="toggle-slider"></span></label>');
                 header.on('click', function(e) {
-                    if ($(e.target).closest('input,button,.toggle-switch').length) return;
+                    if ($(e.target).closest('input,button,.toggle-switch,.event-chip').length) return;
                     toggleCollapse(p.id);
                 });
                 card.append(header);
 
                 var body = $('<div class="push-card-body" style="' + (p.collapsed ? 'display:none' : '') + '"></div>');
-                var r1 = $('<div class="row mb-2"></div>');
-                r1.append('<div class="col-md-6 mb-2"><label class="form-label small fw-bold">推送名称</label><input class="form-control form-control-sm" value="' + escHtml(p.name) + '" onchange="updateField(\'' + p.id + '\',\'name\',this.value)"></div>');
+                var r1 = $('<div class="mb-2"></div>');
+                r1.append('<label class="form-label small fw-bold">推送名称</label><input class="form-control form-control-sm" value="' + escHtml(p.name) + '" onchange="updateField(\'' + p.id + '\',\'name\',this.value)">');
                 body.append(r1);
 
-                var r2 = $('<div class="row mb-2"></div>');
-                r2.append('<div class="col-md-5 mb-2"><label class="form-label small fw-bold">推送标题</label><input class="form-control form-control-sm" value="' + escHtml(p.title) + '" placeholder="推送标题" onchange="updateField(\'' + p.id + '\',\'title\',this.value)"></div>');
-                r2.append('<div class="col-md-5 mb-2"><label class="form-label small fw-bold">推送内容</label><input class="form-control form-control-sm" value="' + escHtml(p.content) + '" placeholder="推送内容" onchange="updateField(\'' + p.id + '\',\'content\',this.value)"></div>');
-                r2.append('<div class="col-md-2 mb-2"><label class="form-label small fw-bold">类型</label><select class="form-select form-select-sm" onchange="updateField(\'' + p.id + '\',\'type\',this.value)"><option value="text" ' + (p.type === 'text' ? 'selected' : '') + '>文本</option></select></div>');
-                body.append(r2);
+                // 关联事件区域
+                var evtSection = $('<div class="mb-2 p-2" style="background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;"></div>');
+                evtSection.append('<label class="form-label small fw-bold mb-1">🔔 关联事件（事件触发时自动推送到此配置的接口地址）</label>');
+                var chipsDiv = $('<div class="event-chips mb-1"></div>');
+                (p.events || []).forEach(function(evt) {
+                    chipsDiv.append('<span class="event-chip selected" onclick="toggleEvent(\'' + p.id + '\',\'' + evt + '\')">' + getEventName(evt) + ' <span class="remove">✕</span></span>');
+                });
+                if (!p.events || p.events.length === 0) {
+                    chipsDiv.append('<span class="text-muted" style="font-size:12px;">未关联事件，点击下方选择</span>');
+                }
+                evtSection.append(chipsDiv);
+                var picker = $('<div class="event-picker-dropdown"></div>');
+                picker.append('<button class="btn btn-outline-secondary btn-xs" onclick="var dd=$(this).next();dd.toggleClass(\'show\');">➕ 选择事件</button>');
+                var dd = $('<div class="event-dropdown-menu"></div>');
+                eventCatalog.forEach(function(cat) {
+                    dd.append('<div class="event-category-label">' + cat.category + '</div>');
+                    cat.events.forEach(function(evt) {
+                        var selected = (p.events || []).indexOf(evt.type) >= 0;
+                        var dotColor = CATEGORY_COLORS[cat.category] || '#6b7280';
+                        dd.append('<div class="event-dropdown-item" onclick="toggleEvent(\'' + p.id + '\',\'' + evt.type + '\');$(this).closest(\'.event-dropdown-menu\').removeClass(\'show\');"><span class="dot" style="background:' + dotColor + '"></span><span>' + evt.name + '</span><span style="margin-left:auto;font-size:10px;color:#9ca3af;">' + evt.type + '</span>' + (selected ? '<span style="color:#22c55e;">✓</span>' : '') + '</div>');
+                    });
+                });
+                picker.append(dd);
+                evtSection.append(picker);
+                body.append(evtSection);
+
+                // 事件模板
+                var tpl = p.event_template || { title: '', content: '', type: 'text' };
+                var tplSection = $('<div class="mb-2 p-2" style="background:#fefce8;border-radius:8px;border:1px solid #fde68a;"></div>');
+                tplSection.append('<label class="form-label small fw-bold mb-1">📝 推送消息模板（支持 {变量名} 占位符）</label>');
+                var tplR1 = $('<div class="row mb-1"></div>');
+                tplR1.append('<div class="col-md-4"><input class="form-control form-control-sm" value="' + escHtml(tpl.title || '') + '" placeholder="标题模板，如：下载完成 - {song_name}" oninput="updateTemplateField(\'' + p.id + '\',\'title\',this.value)"><div class="template-hint">可用变量：{song_name}歌曲名 {artist}歌手 {quality}音质 {file_size}文件大小 {error}错误信息 {music_id}音乐ID {playlist_name}歌单名 {total_synced}同步总数 {success_count}成功数 {total_count}总数 {keyword}搜索词 {host}主机地址 {port}端口</div></div>');
+                tplR1.append('<div class="col-md-6"><input class="form-control form-control-sm" value="' + escHtml(tpl.content || '') + '" placeholder="内容模板" oninput="updateTemplateField(\'' + p.id + '\',\'content\',this.value)"></div>');
+                tplR1.append('<div class="col-md-2"><select class="form-select form-select-sm" onchange="updateTemplateField(\'' + p.id + '\',\'type\',this.value)"><option value="text" ' + (tpl.type === 'text' ? 'selected' : '') + '>文本</option></select></div>');
+                tplSection.append(tplR1);
+                body.append(tplSection);
+
+                // 默认内容（非事件推送用）
+                var baseSection = $('<div class="mb-2" style="opacity:0.7;"></div>');
+                baseSection.append('<label class="form-label small fw-bold">默认推送内容（非事件触发时使用）</label>');
+                var baseR = $('<div class="row mb-1"></div>');
+                baseR.append('<div class="col-md-5"><input class="form-control form-control-sm" value="' + escHtml(p.title) + '" placeholder="默认标题" onchange="updateField(\'' + p.id + '\',\'title\',this.value)"></div>');
+                baseR.append('<div class="col-md-5"><input class="form-control form-control-sm" value="' + escHtml(p.content) + '" placeholder="默认内容" onchange="updateField(\'' + p.id + '\',\'content\',this.value)"></div>');
+                baseR.append('<div class="col-md-2"><select class="form-select form-select-sm" onchange="updateField(\'' + p.id + '\',\'type\',this.value)"><option value="text" ' + (p.type === 'text' ? 'selected' : '') + '>文本</option></select></div>');
+                baseSection.append(baseR);
+                body.append(baseSection);
 
                 var urlSec = $('<div class="mt-2"></div>');
                 urlSec.append('<label class="form-label small fw-bold">推送接口地址</label>');

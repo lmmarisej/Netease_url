@@ -23,6 +23,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from music_api import playlist_detail, name_v1, url_v1, APIException
 from cookie_manager import CookieManager, CookieException
 from music_downloader import MusicDownloader, DownloadException
+from event_bus import event_bus, EventType, fire_event, create_event
 
 
 class PlaylistSyncConfig:
@@ -168,6 +169,12 @@ class PlaylistSyncService:
         self.logger.info("="*60)
         self.logger.info(f"开始同步 {len(self.config.playlist_ids)} 个歌单")
         self.logger.info("="*60)
+
+        # 触发同步开始事件
+        fire_event(EventType.SYNC_STARTED, {
+            'playlist_count': len(self.config.playlist_ids),
+            'quality': self.config.quality,
+        }, source='playlist_sync', async_mode=True)
         
         sync_results = []
         
@@ -194,6 +201,21 @@ class PlaylistSyncService:
         
         # 保存同步历史
         self._save_sync_history(sync_results)
+
+        # 触发同步完成/失败事件
+        if success_count == len(sync_results):
+            fire_event(EventType.SYNC_COMPLETED, {
+                'success_count': success_count,
+                'total_count': len(sync_results),
+                'total_synced': total_synced,
+            }, source='playlist_sync', async_mode=True)
+        else:
+            fire_event(EventType.SYNC_FAILED, {
+                'success_count': success_count,
+                'total_count': len(sync_results),
+                'total_synced': total_synced,
+                'error': f"{len(sync_results) - success_count} 个歌单同步失败",
+            }, source='playlist_sync', async_mode=True)
         
         return sync_results
     
@@ -207,6 +229,10 @@ class PlaylistSyncService:
             同步结果字典
         """
         self.logger.info(f"\n开始同步歌单: {playlist_id}")
+
+        fire_event(EventType.SYNC_PLAYLIST_STARTED, {
+            'playlist_id': playlist_id,
+        }, source='playlist_sync', async_mode=True)
         
         try:
             # 获取Cookie
@@ -256,6 +282,13 @@ class PlaylistSyncService:
                         synced_count += 1
                         existing_songs.add(song_id)
                         self.logger.info(f"✓ 下载成功: {download_result.file_path}")
+                        fire_event(EventType.SYNC_SONG_DOWNLOADED, {
+                            'playlist_id': playlist_id,
+                            'song_id': song_id,
+                            'song_name': song_name,
+                            'artists': artists,
+                            'progress': f"{i}/{len(tracks)}",
+                        }, source='playlist_sync', async_mode=True)
                     else:
                         failed_count += 1
                         self.logger.warning(f"✗ 下载失败: {download_result.error_message}")
@@ -269,6 +302,14 @@ class PlaylistSyncService:
                     continue
             
             self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 失败 {failed_count} 首")
+
+            fire_event(EventType.SYNC_PLAYLIST_COMPLETED, {
+                'playlist_id': playlist_id,
+                'playlist_name': playlist_name,
+                'total_tracks': len(tracks),
+                'synced_count': synced_count,
+                'failed_count': failed_count,
+            }, source='playlist_sync', async_mode=True)
             
             return {
                 'playlist_id': playlist_id,

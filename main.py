@@ -39,6 +39,11 @@ try:
     from music_downloader import MusicDownloader, DownloadException, AudioFormat
     from playlist_sync import PlaylistSyncConfig, PlaylistSyncService, init_sync_service, get_sync_service
     from task_manager import task_manager, TaskManager, TaskStatus, TaskInfo
+    from event_bus import (
+        event_bus, EventType, Event, fire_event, create_event,
+        get_events_catalog, EVENT_DISPLAY_NAMES, EVENT_CATEGORIES
+    )
+    from push_manager import init_push_routes
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
@@ -100,6 +105,9 @@ class APIResponse:
 
 class MusicAPIService:
     """音乐API服务类"""
+    
+    # 暴露 APIResponse 供外部模块使用
+    APIResponse = APIResponse
     
     def __init__(self, config: APIConfig):
         self.config = config
@@ -648,6 +656,10 @@ def get_song_info():
         
         elif info_type == 'name':
             result = name_v1(music_id)
+            fire_event(EventType.SONG_INFO_FETCHED, {
+                'music_id': music_id,
+                'info_type': 'name',
+            }, source='api')
             return APIResponse.success(result, "获取歌曲信息成功")
         
         elif info_type == 'lyric':
@@ -691,6 +703,12 @@ def get_song_info():
                     'size': '获取失败'
                 })
             
+            fire_event(EventType.SONG_INFO_FETCHED, {
+                'music_id': music_id,
+                'info_type': 'json',
+                'song_name': response_data.get('name', ''),
+                'artist': response_data.get('ar_name', ''),
+            }, source='api')
             return APIResponse.success(response_data, "获取歌曲信息成功")
             
     except APIException as e:
@@ -732,6 +750,10 @@ def search_music_api():
                 if 'artists' in song:
                     song['artist_string'] = song['artists']
         
+        fire_event(EventType.SEARCH_PERFORMED, {
+            'keyword': keyword,
+            'result_count': len(result) if result else 0,
+        }, source='api')
         return APIResponse.success(result, "搜索完成")
         
     except ValueError as e:
@@ -767,6 +789,11 @@ def get_playlist():
         # 记录操作日志
         playlist_name = result.get('name', '未知歌单') if result else '未知歌单'
         operation_logger.info(f"[歌单解析] ID={playlist_id} 名称={playlist_name}")
+        fire_event(EventType.PLAYLIST_FETCHED, {
+            'playlist_id': playlist_id,
+            'playlist_name': playlist_name,
+            'track_count': len(result.get('tracks', [])) if result else 0,
+        }, source='api')
         return APIResponse.success(response_data, "获取歌单详情成功")
         
     except Exception as e:
@@ -797,10 +824,18 @@ def get_album():
             'album': result
         }
         
+        fire_event(EventType.ALBUM_FETCHED, {
+            'album_id': album_id,
+            'album_name': result.get('name', '') if result else '',
+        }, source='api')
         return APIResponse.success(response_data, "获取专辑详情成功")
         
     except Exception as e:
         api_service.logger.error(f"获取专辑异常: {e}\n{traceback.format_exc()}")
+        fire_event(EventType.API_ERROR, {
+            'endpoint': '/album',
+            'error': str(e),
+        }, source='api')
         return APIResponse.error(f"获取专辑失败: {str(e)}", 500)
 
 
@@ -840,6 +875,13 @@ def download_music_api():
         
         # 创建下载任务
         task = task_manager.create_task('download', f'下载中...', music_id=music_id, quality=quality)
+
+        # 触发下载开始事件
+        fire_event(EventType.DOWNLOAD_STARTED, {
+            'music_id': music_id,
+            'quality': quality,
+            'task_id': task.task_id,
+        }, source='api', async_mode=True)
         
         try:
             # 获取音乐基本信息
@@ -868,6 +910,11 @@ def download_music_api():
                     if q != quality:
                         task_manager.update_task(task.task_id, message=f'请求的音质不可用，已降级为 {q}', progress=35)
                         api_service.logger.info(f"音质降级: {quality} -> {q} for {music_id}")
+                        fire_event(EventType.DOWNLOAD_QUALITY_DOWNGRADED, {
+                            'music_id': music_id,
+                            'original_quality': quality,
+                            'actual_quality': q,
+                        }, source='api', async_mode=True)
                     break
                 else:
                     api_service.logger.info(f"音质 {q} 不可用 for {music_id}，尝试下一级")
@@ -914,6 +961,14 @@ def download_music_api():
                     api_service.logger.info(f"文件已存在: {filename}")
                     operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (文件已存在)")
                     task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
+                    fire_event(EventType.DOWNLOAD_COMPLETED, {
+                        'music_id': music_id,
+                        'song_name': song_name,
+                        'artist': artist_name,
+                        'quality': actual_quality,
+                        'file_size': str(url_data.get('size', 0)),
+                        'mode': 'local_only',
+                    }, source='api', async_mode=True)
                 else:
                     task_manager.update_task(task.task_id, message='正在后台下载...', progress=50)
                     # 后台线程下载
@@ -926,8 +981,22 @@ def download_music_api():
                                     f.write(chunk)
                             task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
                             operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (仅本地)")
+                            fire_event(EventType.DOWNLOAD_COMPLETED, {
+                                'music_id': music_id,
+                                'song_name': song_name,
+                                'artist': artist_name,
+                                'quality': actual_quality,
+                                'file_size': str(url_data.get('size', 0)),
+                                'mode': 'local_only',
+                            }, source='api', async_mode=True)
                         except Exception as e:
                             task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                            fire_event(EventType.DOWNLOAD_FAILED, {
+                                'music_id': music_id,
+                                'song_name': song_name,
+                                'artist': artist_name,
+                                'error': str(e),
+                            }, source='api', async_mode=True)
                     Thread(target=_bg_download, daemon=True).start()
                 response_data = {
                     'music_id': music_id,
@@ -961,9 +1030,23 @@ def download_music_api():
                     task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
                     tag = " (保存+浏览器)" if save_local else " (仅浏览器)"
                     operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality}{tag}")
+                    fire_event(EventType.DOWNLOAD_COMPLETED, {
+                        'music_id': music_id,
+                        'song_name': song_name,
+                        'artist': artist_name,
+                        'quality': actual_quality,
+                        'file_size': str(url_data.get('size', 0)),
+                        'mode': 'browser' if not save_local else 'both',
+                    }, source='api', async_mode=True)
                 except Exception as e:
                     api_service.logger.error(f"流式下载异常: {e}")
                     task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                    fire_event(EventType.DOWNLOAD_FAILED, {
+                        'music_id': music_id,
+                        'song_name': song_name,
+                        'artist': artist_name,
+                        'error': str(e),
+                    }, source='api', async_mode=True)
                 finally:
                     if local_f:
                         local_f.close()
@@ -1052,6 +1135,10 @@ def save_sync_config():
         data = api_service._safe_get_request_data()
         
         if api_service.reload_sync_config(data):
+            fire_event(EventType.SYNC_CONFIG_UPDATED, {
+                'enable_sync': data.get('enable_sync', False),
+                'playlist_count': len(data.get('playlist_ids', [])),
+            }, source='api')
             return APIResponse.success(
                 {'message': '配置已保存，同步服务已更新'},
                 "配置保存成功"
@@ -1138,6 +1225,10 @@ def save_cookie_config():
         # 写入文件
         api_service.cookie_manager.write_cookie(cookie_content)
 
+        fire_event(EventType.COOKIE_UPDATED, {
+            'has_content': bool(cookie_content),
+        }, source='api')
+
         # 验证保存结果
         info = api_service.cookie_manager.get_cookie_info()
         return APIResponse.success({
@@ -1186,6 +1277,12 @@ def save_settings():
         current['download_browser'] = config.download_browser
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(current, f, ensure_ascii=False, indent=2)
+
+        fire_event(EventType.SETTINGS_UPDATED, {
+            'downloads_dir': config.downloads_dir,
+            'download_save_local': config.download_save_local,
+            'download_browser': config.download_browser,
+        }, source='api')
 
         return APIResponse.success({
             'downloads_dir': config.downloads_dir,
@@ -1243,6 +1340,16 @@ def start_api_server():
         print("="*60)
         print(f"⏰ 启动时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("🌟 服务已就绪，等待请求...\n")
+
+        # 初始化推送管理和事件路由
+        init_push_routes(app, api_service)
+
+        # 触发服务启动事件
+        fire_event(EventType.SERVER_STARTED, {
+            'host': config.host,
+            'port': config.port,
+            'version': '2.0.0',
+        }, source='server', async_mode=True)
         
         # 启动定时同步服务
         if api_service.sync_service:
@@ -1268,79 +1375,6 @@ def start_api_server():
         api_service.logger.error(f"启动服务失败: {e}")
         print(f"❌ 启动失败: {e}")
         sys.exit(1)
-
-
-# ===== 消息推送 =====
-PUSH_CONFIG_FILE = str(Path('config') / 'push_config.json')
-
-
-def _load_push_config():
-    if Path(PUSH_CONFIG_FILE).exists():
-        with open(PUSH_CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {'pushes': []}
-
-
-def _save_push_config(data):
-    with open(PUSH_CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-@app.route('/magicpush')
-def magicpush_page():
-    """消息推送页面"""
-    return render_template('magicpush.html')
-
-
-@app.route('/api/push/config', methods=['GET'])
-def get_push_config():
-    """获取推送配置"""
-    try:
-        return APIResponse.success(_load_push_config(), "获取推送配置成功")
-    except Exception as e:
-        return APIResponse.error(f"获取推送配置失败: {str(e)}", 500)
-
-
-@app.route('/api/push/config', methods=['POST'])
-def save_push_config():
-    """保存推送配置"""
-    try:
-        data = api_service._safe_get_request_data()
-        _save_push_config(data)
-        return APIResponse.success(None, "推送配置已保存")
-    except Exception as e:
-        return APIResponse.error(f"保存推送配置失败: {str(e)}", 500)
-
-
-@app.route('/api/push/send', methods=['POST'])
-def send_push():
-    """发送推送消息到指定URL"""
-    try:
-        data = api_service._safe_get_request_data()
-        url = data.get('url', '').strip()
-        title = data.get('title', '')
-        content = data.get('content', '')
-        push_type = data.get('type', 'text')
-
-        if not url:
-            return APIResponse.error("推送URL不能为空", 400)
-
-        payload = {
-            'title': title,
-            'content': content,
-            'type': push_type
-        }
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code == 200:
-            return APIResponse.success({'status_code': r.status_code}, "推送成功")
-        else:
-            return APIResponse.error(f"推送失败: HTTP {r.status_code} {r.text[:200]}", 400)
-    except requests.exceptions.Timeout:
-        return APIResponse.error("推送超时", 500)
-    except requests.exceptions.ConnectionError:
-        return APIResponse.error("无法连接到推送地址", 500)
-    except Exception as e:
-        return APIResponse.error(f"推送失败: {str(e)}", 500)
 
 
 if __name__ == '__main__':
