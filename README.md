@@ -28,14 +28,21 @@ docker-compose up -d
 
 ### 页面截图
 
-> 📸 待补充截图，请将截图放入 `screenshots/` 目录
+#### 🏠 业务操作 — 搜索 / 歌单解析 / 专辑解析 / 下载
 
-| 页面 | 截图位置 |
-|------|----------|
-| 业务操作 | `screenshots/index.png` |
-| 定时同步配置 | `screenshots/config.png` |
-| API 文档 | `screenshots/api-docs.png` |
-| 运行日志 | `screenshots/logs.png` |
+![业务操作](screenshots/index.png)
+
+#### ⚙️ 定时同步配置 — 歌单管理 / 音质选择 / Cron 调度
+
+![定时同步配置](screenshots/config.png)
+
+#### 📖 API 接口文档 — 折叠式端点说明
+
+![API 文档](screenshots/api-docs.png)
+
+#### 📋 运行日志 — 实时查看 / 文件切换
+
+![运行日志](screenshots/logs.png)
 
 ## 🔌 API 端点
 
