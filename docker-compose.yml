@@ -8,15 +8,14 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # 核心：把冒号后面的路径改成 /app/downloads (加个 s)
+      # 下载目录：修改冒号前路径为你自己的下载路径
       - /vol3/1000/音乐/网易云/Download:/app/downloads
+      # 持久化配置文件（settings.json, sync_config.json, cookie.txt）
+      - ./config:/app/config
+      - ./cookie.txt:/app/cookie.txt
+      - ./logs:/app/logs
     environment:
       - PORT=5000
-      - LEVEL=lossless
-      - COOKIE='你的完整Cookie'
-      # 定时同步配置
-      - ENABLE_SYNC=true
-      - PLAYLIST_IDS=你的歌单ID1,你的歌单ID2
-      - SYNC_QUALITY=lossless
-      - SYNC_INTERVAL=3600
-      # - CRON_EXPRESSION=0 2 * * *  # 可选：每天凌晨2点同步
+      # 其他配置已迁移至 config/settings.json
+      # 定时同步配置请在 Web 界面 http://localhost:5000/config 中设置
+      # Cookie 请写入 cookie.txt 文件
