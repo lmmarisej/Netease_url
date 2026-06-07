@@ -966,7 +966,7 @@ def download_music_api():
                         'song_name': song_name,
                         'artist': artist_name,
                         'quality': actual_quality,
-                        'file_size': str(url_data.get('size', 0)),
+                        'file_size': api_service._format_file_size(url_data.get('size', 0)),
                         'mode': 'local_only',
                     }, source='api', async_mode=True)
                 else:
@@ -986,7 +986,7 @@ def download_music_api():
                                 'song_name': song_name,
                                 'artist': artist_name,
                                 'quality': actual_quality,
-                                'file_size': str(url_data.get('size', 0)),
+                                'file_size': api_service._format_file_size(url_data.get('size', 0)),
                                 'mode': 'local_only',
                             }, source='api', async_mode=True)
                         except Exception as e:
@@ -1035,7 +1035,7 @@ def download_music_api():
                         'song_name': song_name,
                         'artist': artist_name,
                         'quality': actual_quality,
-                        'file_size': str(url_data.get('size', 0)),
+                        'file_size': api_service._format_file_size(url_data.get('size', 0)),
                         'mode': 'browser' if not save_local else 'both',
                     }, source='api', async_mode=True)
                 except Exception as e:
