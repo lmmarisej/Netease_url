@@ -57,10 +57,8 @@
         .track-item .actions .btn { font-size: 12px; padding: 3px 10px; }
 
         /* 歌曲详情弹窗 */
-        .detail-panel { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 20px; display: none; }
-        .detail-panel .detail-header { display: flex; gap: 16px; margin-bottom: 16px; }
-        .detail-panel .detail-header img { width: 120px; height: 120px; border-radius: 8px; object-fit: cover; }
-        .detail-panel .detail-header .meta h4 { font-weight: 700; margin-bottom: 4px; }
+        .detail-header { display: flex; gap: 16px; margin-bottom: 16px; }
+        .detail-header img { max-width: 140px; max-height: 140px; width: auto; height: auto; border-radius: 8px; object-fit: contain; flex-shrink: 0; }
         .detail-panel .detail-header .meta .badge { margin-right: 6px; }
         .detail-panel .detail-actions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
         .detail-panel .lyric-box { max-height: 160px; overflow-y: auto; background: #f8f9fc; border-radius: 8px; padding: 12px 16px; font-size: 14px; line-height: 1.8; margin-bottom: 12px; }
@@ -74,6 +72,13 @@
         .tab-content-area { min-height: 200px; }
 
         .text-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .history-area { margin-top: 10px; }
+        .history-area .history-title { font-size: 12px; color: #999; margin-bottom: 6px; }
+        .history-tag { display: inline-block; background: #f0f4ff; color: #4f46e5; padding: 3px 12px; border-radius: 14px; font-size: 12px; margin: 2px 4px 2px 0; cursor: pointer; transition: all 0.15s; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .history-tag:hover { background: #dbeafe; color: #1e40af; }
+        .history-tag .del { margin-left: 4px; opacity: 0.5; cursor: pointer; }
+        .history-tag .del:hover { opacity: 1; color: #dc2626; }
     </style>
 </head>
 <body>
@@ -117,6 +122,7 @@
                             <button class="btn btn-primary" onclick="doSearch()">搜索</button>
                         </div>
                     </div>
+                    <div class="history-area" id="search-history"></div>
                     <div class="song-grid" id="search-results"></div>
                     <div id="search-empty" class="text-center text-muted py-5 d-none">🔍 输入关键词搜索歌曲</div>
                 </div>
@@ -130,6 +136,7 @@
                             <button class="btn btn-warning" onclick="doPlaylist()">解析歌单</button>
                         </div>
                     </div>
+                    <div class="history-area" id="playlist-history"></div>
                     <div id="playlist-header"></div>
                     <div class="track-list" id="playlist-tracks"></div>
                 </div>
@@ -143,6 +150,7 @@
                             <button class="btn btn-info text-white" onclick="doAlbum()">解析专辑</button>
                         </div>
                     </div>
+                    <div class="history-area" id="album-history"></div>
                     <div id="album-header"></div>
                     <div class="track-list" id="album-tracks"></div>
                 </div>
@@ -168,6 +176,7 @@
                             </div>
                         </div>
                         <button class="btn btn-success w-100" id="download-btn" onclick="doDownload()">⬇️ 开始下载</button>
+                        <div class="history-area mt-3" id="download-history"></div>
                         <div id="download-progress" class="mt-3 d-none">
                             <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%"></div></div>
                             <small class="text-muted">正在下载并写入元信息...</small>
@@ -175,31 +184,37 @@
                     </div>
                 </div>
 
-                <!-- 歌曲详情面板 -->
-                <div class="detail-panel" id="detail-panel">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <h5 class="mb-0">🎧 歌曲详情</h5>
-                        <button class="btn-close" onclick="$('#detail-panel').hide()"></button>
-                    </div>
-                    <div class="detail-header">
-                        <img id="detail-cover" src="" alt="cover">
-                        <div class="meta">
-                            <h4 id="detail-name"></h4>
-                            <div><span class="badge bg-primary" id="detail-artist"></span></div>
-                            <div class="mt-1"><span class="badge bg-secondary" id="detail-album"></span></div>
-                            <div class="mt-1">
-                                <span class="badge bg-success" id="detail-quality"></span>
-                                <span class="badge bg-warning text-dark" id="detail-size"></span>
+                <!-- 歌曲详情弹窗 -->
+                <div class="modal fade" id="detailModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">🎧 歌曲详情</h5>
+                                <button class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="detail-header">
+                                    <img id="detail-cover" src="" alt="cover">
+                                    <div class="meta">
+                                        <h5 id="detail-name" class="mb-1"></h5>
+                                        <div><span class="badge bg-primary" id="detail-artist"></span></div>
+                                        <div class="mt-1"><span class="badge bg-secondary" id="detail-album"></span></div>
+                                        <div class="mt-1">
+                                            <span class="badge bg-success" id="detail-quality"></span>
+                                            <span class="badge bg-warning text-dark" id="detail-size"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="detail-actions mt-3">
+                                    <button class="btn btn-sm btn-success" id="detail-download-btn" onclick="downloadFromDetail()">⬇️ 下载到本地</button>
+                                    <a id="detail-url" href="#" target="_blank" class="btn btn-sm btn-outline-primary">🔗 直链</a>
+                                    <button class="btn btn-sm btn-outline-info" id="show-big-pic">🖼️ 大图</button>
+                                </div>
+                                <div class="lyric-box mt-3" id="detail-lyric"></div>
+                                <div id="aplayer" class="mt-2"></div>
                             </div>
                         </div>
                     </div>
-                    <div class="detail-actions">
-                        <button class="btn btn-sm btn-success" id="detail-download-btn" onclick="downloadFromDetail()">⬇️ 下载</button>
-                        <a id="detail-url" href="#" target="_blank" class="btn btn-sm btn-outline-primary">🔗 直链</a>
-                        <button class="btn btn-sm btn-outline-info" id="show-big-pic">🖼️ 大图</button>
-                    </div>
-                    <div class="lyric-box" id="detail-lyric"></div>
-                    <div id="aplayer"></div>
                 </div>
 
                 <!-- 大图弹窗 -->
@@ -257,6 +272,7 @@
             const kw = $('#search-keyword').val().trim();
             if (!kw) return showToast('请输入搜索关键词', 'warning');
             const limit = $('#search-limit').val();
+            saveHistory('search', { id: kw, name: kw, time: Date.now() });
             $.post('/Search', { keyword: kw, limit: limit }, function(data) {
                 const $r = $('#search-results').empty();
                 $('#search-empty').addClass('d-none');
@@ -289,6 +305,7 @@
             if (!pid) return showToast('请输入歌单ID或链接', 'warning');
             const m = pid.match(/playlist\?id=(\d+)/);
             if (m) pid = m[1];
+            saveHistory('playlist', { id: pid, name: pid, time: Date.now() });
             $.get('/Playlist', { id: pid }, function(data) {
                 if (data.status === 200) {
                     const pl = data.data.playlist;
@@ -328,6 +345,7 @@
             if (!aid) return showToast('请输入专辑ID或链接', 'warning');
             const m = aid.match(/album\?id=(\d+)/);
             if (m) aid = m[1];
+            saveHistory('album', { id: aid, name: aid, time: Date.now() });
             $.get('/Album', { id: aid }, function(data) {
                 if (data.status === 200) {
                     const al = data.data.album;
@@ -361,14 +379,18 @@
             });
         }
 
-        // ===== 歌曲详情 =====
+        // ===== 歌曲详情（弹窗） =====
         function showDetail(songId) {
             currentDetailId = songId;
-            $('#detail-panel').show();
+            if (apInstance) { apInstance.destroy(); apInstance = null; }
             $('#detail-name').text('加载中...');
             $('#detail-lyric').text('');
             $('#detail-cover').attr('src', '');
-            if (apInstance) { apInstance.destroy(); apInstance = null; }
+            $('#detail-url').attr('href', '#');
+
+            // 显示弹窗
+            const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+            modal.show();
 
             $.post('/Song_V1', { url: songId, level: currentQuality, type: 'json' }, function(data) {
                 if (data.status === 200) {
@@ -387,22 +409,29 @@
                     if (d.tlyric) lyric = lrctran(d.lyric, d.tlyric);
                     $('#detail-lyric').html(lyric.replace(/\n/g, '<br>') || '暂无歌词');
 
-                    if (d.url) {
-                        apInstance = new APlayer({
-                            container: document.getElementById('aplayer'),
-                            lrcType: 1,
-                            audio: [{ name: d.name, artist: d.ar_name, url: d.url, cover: d.pic, lrc: lyric }]
-                        });
-                    }
+                    // APlayer 需要弹窗完全显示后再初始化
+                    setTimeout(function() {
+                        if (d.url) {
+                            apInstance = new APlayer({
+                                container: document.getElementById('aplayer'),
+                                lrcType: 1,
+                                audio: [{ name: d.name, artist: d.ar_name, url: d.url, cover: d.pic, lrc: lyric }]
+                            });
+                        }
+                    }, 300);
                 } else {
                     $('#detail-name').text('获取失败');
                 }
             }, 'json').fail(function() {
                 $('#detail-name').text('请求失败');
             });
-
-            $('html,body').animate({ scrollTop: $('#detail-panel').offset().top - 100 }, 300);
         }
+
+        // 弹窗关闭时销毁播放器
+        $('#detailModal').on('hidden.bs.modal', function() {
+            if (apInstance) { apInstance.destroy(); apInstance = null; }
+            $('#aplayer').empty();
+        });
 
         // ===== 快速下载（从卡片） =====
         function quickDownload(songId, songName) {
@@ -446,6 +475,8 @@
             const m = musicId.match(/song\?id=(\d+)/);
             if (m) musicId = m[1];
 
+            const songName = $('#download-song-info').text().replace('🎵 ', '') || musicId;
+            saveHistory('download', { id: musicId, name: songName, time: Date.now() });
             $('#download-progress').removeClass('d-none');
             const $btn = $('#download-btn').prop('disabled', true).text('下载中...');
 
@@ -515,12 +546,80 @@
             return result;
         }
 
+        // ===== 历史记录管理 =====
+        const HIST_MAX = 20;
+
+        function loadHistory(key) {
+            try { return JSON.parse(localStorage.getItem('hist_' + key) || '[]'); } catch(e) { return []; }
+        }
+
+        function saveHistory(key, item) {
+            let list = loadHistory(key);
+            // 去重（按 id）
+            list = list.filter(function(h) { return h.id !== item.id; });
+            list.unshift(item);
+            if (list.length > HIST_MAX) list = list.slice(0, HIST_MAX);
+            localStorage.setItem('hist_' + key, JSON.stringify(list));
+            renderHistory(key);
+        }
+
+        function removeHistory(key, id) {
+            let list = loadHistory(key).filter(function(h) { return h.id !== id; });
+            localStorage.setItem('hist_' + key, JSON.stringify(list));
+            renderHistory(key);
+        }
+
+        function renderHistory(key) {
+            const list = loadHistory(key);
+            const map = { search: 'search-history', playlist: 'playlist-history', album: 'album-history', download: 'download-history' };
+            const $c = $('#' + (map[key] || ''));
+            if (!$c.length) return;
+            $c.empty();
+            if (list.length === 0) return;
+            $c.append('<div class="history-title">📜 历史记录</div>');
+            list.forEach(function(h) {
+                const tag = $('<span class="history-tag">' + escHtml(h.name || h.id) + '<span class="del">✕</span></span>');
+                tag.on('click', function(e) {
+                    if ($(e.target).hasClass('del')) { removeHistory(key, h.id); return; }
+                    applyHistory(key, h);
+                });
+                $c.append(tag);
+            });
+        }
+
+        function applyHistory(key, h) {
+            switch(key) {
+                case 'search':
+                    $('#search-keyword').val(h.id);
+                    doSearch();
+                    break;
+                case 'playlist':
+                    $('#playlist-input').val(h.id);
+                    doPlaylist();
+                    break;
+                case 'album':
+                    $('#album-input').val(h.id);
+                    doAlbum();
+                    break;
+                case 'download':
+                    $('#download-input').val(h.id);
+                    if (h.name) $('#download-song-info').removeClass('d-none').html('🎵 <strong>' + escHtml(h.name) + '</strong>');
+                    $('#main-tabs .nav-link[data-tab="download"]').trigger('click');
+                    break;
+            }
+        }
+
+        // 页面加载时渲染所有历史
+        $(function() {
+            ['search', 'playlist', 'album', 'download'].forEach(renderHistory);
+        });
+
         function escHtml(s) {
             if (!s) return '';
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
         }
-    </script>
+        </script>
 </body>
 </html>
