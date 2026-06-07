@@ -6,7 +6,7 @@
 
 ```bash
 pip install -r requirements.txt
-# 将黑胶会员 Cookie 写入 cookie.txt
+# 将黑胶会员 Cookie 写入 config/cookie.txt
 python main.py
 # 访问 http://localhost:5000
 ```
@@ -22,7 +22,7 @@ docker-compose up -d
 | 路径 | 页面 | 功能 |
 |------|------|------|
 | `/` | 业务操作 | 歌曲搜索、单曲/歌单/专辑解析、音乐下载 |
-| `/config` | 定时同步配置 | 配置歌单定时自动同步 |
+| `/config` | 配置 | 同步配置 & Cookie 管理 |
 | `/api-docs` | API 接口文档 | 全部 API 端点说明与示例 |
 | `/logs` | 运行日志 | 实时查看服务日志（3s 刷新） |
 
@@ -60,6 +60,8 @@ docker-compose up -d
 | GET | `/api/info` | API 服务信息 |
 | GET | `/api/api-docs` | API 文档 JSON |
 | GET | `/api/logs` | 日志内容 API |
+| GET | `/api/cookie` | 获取 Cookie 配置 |
+| POST | `/api/cookie` | 保存 Cookie 配置 |
 
 > 完整文档见 Web 界面 `/api-docs`
 
@@ -87,18 +89,19 @@ docker-compose up -d
 │   └── qr_login.py         # 扫码登录
 ├── config/
 │   ├── settings.json       # 运行配置
-│   └── api.json            # API 文档定义
+│   ├── api.json            # API 文档定义
+│   ├── sync_config.json    # 同步配置（运行时生成）
+│   └── cookie.txt          # Cookie 配置
 ├── templates/              # Web 页面
 ├── logs/                   # 日志文件
-├── downloads/              # 下载目录
-└── cookie.txt              # 黑胶 Cookie
+└── downloads/              # 下载目录
 ```
 
 ## ⚠️ 注意事项
 
 - 需要网易云音乐黑胶会员账号 Cookie 才能解析高音质
-- 将 Cookie 完整内容写入 `cookie.txt` 文件
-- 定时同步配置在 Web 界面 `/config` 中管理
+- 将 Cookie 完整内容写入 `config/cookie.txt` 文件，或在 Web 界面 `/config` → Cookie 配置中编辑
+- 同步配置和 Cookie 均在 Web 界面 `/config` 中管理（页签切换）
 
 ## 📄 许可证
 

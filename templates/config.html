@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>定时同步配置 - 网易云音乐工具箱</title>
+    <title>配置 - 网易云音乐工具箱</title>
     <link href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f5f6fa; color: #333; }
@@ -46,6 +46,19 @@
         .sync-history-item:last-child { border-bottom: none; }
         .sync-history-item .time { color: #999; font-size: 12px; white-space: nowrap; }
         .sync-history-item .status-icon { font-size: 16px; }
+
+        /* 配置页签 */
+        .config-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; }
+        .config-tab { padding: 10px 24px; cursor: pointer; color: #6b7280; font-weight: 600; font-size: 15px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+        .config-tab:hover { color: #4f46e5; }
+        .config-tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+        .config-tab-panel { display: none; }
+        .config-tab-panel.active { display: block; }
+
+        /* Cookie状态指示器 */
+        .cookie-status { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
+        .cookie-status.valid { color: #065f46; }
+        .cookie-status.invalid { color: #991b1b; }
     </style>
 </head>
 <body>
@@ -55,7 +68,7 @@
                 <div class="p-3 border-bottom"><h5 class="mb-0">🎵 网易云工具箱</h5></div>
                 <nav class="nav flex-column mt-3">
                     <a class="nav-link" href="/"><i>🏠</i> 业务操作</a>
-                    <a class="nav-link active" href="/config"><i>⚙️</i> 定时同步配置</a>
+                    <a class="nav-link active" href="/config"><i>⚙️</i> 配置</a>
                     <a class="nav-link" href="/tasks"><i>📊</i> 任务监控</a>
                     <a class="nav-link" href="/logs"><i>📋</i> 运行日志</a>
                     <a class="nav-link" href="/api-docs"><i>📖</i> API 接口文档</a>
@@ -63,84 +76,111 @@
             </div>
 
             <div class="col-md-9 col-lg-10 content-area">
-                <div class="page-title">⚙️ 定时同步配置</div>
+                <div class="page-title">⚙️ 配置</div>
 
-                <!-- 同步状态条 -->
-                <div class="sync-status-bar disabled" id="sync-status-bar">
-                    <span class="status-dot off" id="status-dot"></span>
-                    <span id="status-text">同步服务未启用</span>
-                    <span class="ms-auto text-muted small" id="status-extra"></span>
+                <!-- 配置页签 -->
+                <div class="config-tabs">
+                    <div class="config-tab active" data-tab="sync">🔄 同步配置</div>
+                    <div class="config-tab" data-tab="cookie">🍪 Cookie 配置</div>
                 </div>
 
-                <!-- 开关卡片 -->
-                <div class="section-card">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <h6 class="mb-1">启用定时同步</h6>
-                            <small class="text-muted">开启后将按设定周期自动同步歌单到本地</small>
+                <!-- ===== 同步配置面板 ===== -->
+                <div class="config-tab-panel active" id="tab-sync">
+                    <!-- 同步状态条 -->
+                    <div class="sync-status-bar disabled" id="sync-status-bar">
+                        <span class="status-dot off" id="status-dot"></span>
+                        <span id="status-text">同步服务未启用</span>
+                        <span class="ms-auto text-muted small" id="status-extra"></span>
+                    </div>
+
+                    <!-- 开关卡片 -->
+                    <div class="section-card">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <h6 class="mb-1">启用定时同步</h6>
+                                <small class="text-muted">开启后将按设定周期自动同步歌单到本地</small>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="sync-enable">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="sync-enable">
-                            <span class="toggle-slider"></span>
-                        </label>
+                    </div>
+
+                    <!-- 配置区域（启用时显示） -->
+                    <div class="config-section" id="config-section">
+                        <!-- 歌单管理 -->
+                        <div class="section-card">
+                            <h6>📋 歌单管理</h6>
+                            <div class="input-group mb-2" style="max-width:500px;">
+                                <input type="text" id="playlist-add-input" class="form-control" placeholder="输入歌单ID或链接" onkeydown="if(event.key==='Enter')addPlaylist()">
+                                <button class="btn btn-outline-primary" onclick="addPlaylist()">添加</button>
+                            </div>
+                            <div id="playlist-tags" class="mt-2"></div>
+                            <small class="text-muted">支持网易云歌单链接，自动提取 ID</small>
+                        </div>
+
+                        <!-- 音质 -->
+                        <div class="section-card">
+                            <h6>🎵 同步音质</h6>
+                            <div class="btn-group" id="quality-btns">
+                                <button class="btn btn-outline-secondary btn-sm" data-q="standard">标准</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-q="exhigh">极高</button>
+                                <button class="btn btn-outline-primary btn-sm active" data-q="lossless">无损</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-q="hires">Hi-Res</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-q="sky">环绕声</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-q="jyeffect">高清环绕</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-q="jymaster">母带</button>
+                            </div>
+                        </div>
+
+                        <!-- 调度方式 -->
+                        <div class="section-card">
+                            <h6>⏰ 调度方式</h6>
+                            <div class="btn-group mb-3 schedule-mode" id="schedule-mode">
+                                <button class="btn btn-outline-secondary btn-sm active" data-mode="interval">固定间隔</button>
+                                <button class="btn btn-outline-secondary btn-sm" data-mode="cron">Cron 表达式</button>
+                            </div>
+                            <div id="mode-interval">
+                                <select id="sync-interval" class="form-select" style="max-width:300px;">
+                                    <option value="600">10 分钟</option>
+                                    <option value="1800">30 分钟</option>
+                                    <option value="3600" selected>1 小时</option>
+                                    <option value="7200">2 小时</option>
+                                    <option value="21600">6 小时</option>
+                                    <option value="43200">12 小时</option>
+                                    <option value="86400">24 小时</option>
+                                </select>
+                            </div>
+                            <div id="mode-cron" style="display:none;">
+                                <input type="text" id="sync-cron" class="form-control" style="max-width:300px;" placeholder="0 2 * * *">
+                                <small class="text-muted">格式: 分 时 日 月 周。例如 <code>0 2 * * *</code> = 每天凌晨2点</small>
+                            </div>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-primary" id="save-btn" onclick="saveConfig()">💾 保存同步配置</button>
+                            <button class="btn btn-warning" id="sync-now-btn" onclick="syncNow()">🔄 立即同步一次</button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 配置区域（启用时显示） -->
-                <div class="config-section" id="config-section">
-                    <!-- 歌单管理 -->
+                <!-- ===== Cookie 配置面板 ===== -->
+                <div class="config-tab-panel" id="tab-cookie">
                     <div class="section-card">
-                        <h6>📋 歌单管理</h6>
-                        <div class="input-group mb-2" style="max-width:500px;">
-                            <input type="text" id="playlist-add-input" class="form-control" placeholder="输入歌单ID或链接" onkeydown="if(event.key==='Enter')addPlaylist()">
-                            <button class="btn btn-outline-primary" onclick="addPlaylist()">添加</button>
+                        <h6>🍪 Cookie 配置</h6>
+                        <p class="text-muted small">粘贴网易云音乐黑胶会员 Cookie，支持浏览器 DevTools → Application → Cookies 中导出的格式</p>
+                        <div class="cookie-status invalid mb-2" id="cookie-status">
+                            <span id="cookie-status-icon">⚠️</span>
+                            <span id="cookie-status-text">未检测到有效 Cookie</span>
                         </div>
-                        <div id="playlist-tags" class="mt-2"></div>
-                        <small class="text-muted">支持网易云歌单链接，自动提取 ID</small>
-                    </div>
-
-                    <!-- 音质 -->
-                    <div class="section-card">
-                        <h6>🎵 同步音质</h6>
-                        <div class="btn-group" id="quality-btns">
-                            <button class="btn btn-outline-secondary btn-sm" data-q="standard">标准</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-q="exhigh">极高</button>
-                            <button class="btn btn-outline-primary btn-sm active" data-q="lossless">无损</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-q="hires">Hi-Res</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-q="sky">环绕声</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-q="jyeffect">高清环绕</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-q="jymaster">母带</button>
+                        <textarea id="cookie-content" class="form-control mb-2" rows="6" placeholder="MUSIC_U=xxx; __csrf=xxx; ..." style="font-family:monospace;font-size:13px;"></textarea>
+                        <small class="text-muted">Cookie 保存在 <code>config/cookie.txt</code>，修改后立即生效</small>
+                        <div class="mt-3">
+                            <button class="btn btn-primary" id="cookie-save-btn" onclick="saveCookie()">💾 保存 Cookie</button>
+                            <button class="btn btn-outline-secondary ms-2" id="cookie-clear-btn" onclick="clearCookie()">🗑️ 清空 Cookie</button>
                         </div>
-                    </div>
-
-                    <!-- 调度方式 -->
-                    <div class="section-card">
-                        <h6>⏰ 调度方式</h6>
-                        <div class="btn-group mb-3 schedule-mode" id="schedule-mode">
-                            <button class="btn btn-outline-secondary btn-sm active" data-mode="interval">固定间隔</button>
-                            <button class="btn btn-outline-secondary btn-sm" data-mode="cron">Cron 表达式</button>
-                        </div>
-                        <div id="mode-interval">
-                            <select id="sync-interval" class="form-select" style="max-width:300px;">
-                                <option value="600">10 分钟</option>
-                                <option value="1800">30 分钟</option>
-                                <option value="3600" selected>1 小时</option>
-                                <option value="7200">2 小时</option>
-                                <option value="21600">6 小时</option>
-                                <option value="43200">12 小时</option>
-                                <option value="86400">24 小时</option>
-                            </select>
-                        </div>
-                        <div id="mode-cron" style="display:none;">
-                            <input type="text" id="sync-cron" class="form-control" style="max-width:300px;" placeholder="0 2 * * *">
-                            <small class="text-muted">格式: 分 时 日 月 周。例如 <code>0 2 * * *</code> = 每天凌晨2点</small>
-                        </div>
-                    </div>
-
-                    <!-- 操作按钮 -->
-                    <div class="d-flex gap-2 flex-wrap">
-                        <button class="btn btn-primary" id="save-btn" onclick="saveConfig()">💾 保存配置</button>
-                        <button class="btn btn-warning" id="sync-now-btn" onclick="syncNow()">🔄 立即同步一次</button>
                     </div>
                 </div>
             </div>
@@ -216,6 +256,17 @@
             loadConfig();
             loadStatus();
             setInterval(loadStatus, 10000); // 10秒刷新状态
+
+            // 配置页签切换
+            $('.config-tab').on('click', function() {
+                const tab = $(this).data('tab');
+                $('.config-tab').removeClass('active');
+                $(this).addClass('active');
+                $('.config-tab-panel').removeClass('active');
+                $('#tab-' + tab).addClass('active');
+                // 切换到 Cookie 页签时加载 Cookie 内容
+                if (tab === 'cookie') loadCookieConfig();
+            });
         });
 
         // ===== 歌单标签管理 =====
@@ -404,6 +455,73 @@
                 $('#sync-status-bar').removeClass('enabled').addClass('disabled');
                 $('#status-dot').removeClass('on').addClass('off');
                 $('#status-text').text('同步服务未启用');
+            });
+        }
+
+        // ===== Cookie 配置管理 =====
+        function loadCookieConfig() {
+            $.get('/api/cookie', function(data) {
+                if (data.status === 200 && data.data) {
+                    $('#cookie-content').val(data.data.content || '');
+                    updateCookieStatus(data.data.info);
+                }
+            }, 'json').fail(function() {
+                showToast('加载Cookie配置失败', 'error');
+            });
+        }
+
+        function updateCookieStatus(info) {
+            const $status = $('#cookie-status');
+            const $icon = $('#cookie-status-icon');
+            const $text = $('#cookie-status-text');
+            if (info && info.is_valid) {
+                $status.removeClass('invalid').addClass('valid');
+                $icon.text('✅');
+                const present = (info.important_cookies_present || []).join(', ');
+                $text.text('Cookie 有效 — 关键字段: ' + present);
+            } else {
+                $status.removeClass('valid').addClass('invalid');
+                $icon.text('⚠️');
+                if (info && info.cookie_count > 0) {
+                    const missing = (info.missing_important_cookies || []).join(', ');
+                    $text.text('Cookie 不完整，缺少: ' + missing + ' — 共 ' + info.cookie_count + ' 项');
+                } else {
+                    $text.text('未检测到有效 Cookie');
+                }
+            }
+        }
+
+        function saveCookie() {
+            const content = $('#cookie-content').val().trim();
+            const $btn = $('#cookie-save-btn').prop('disabled', true).text('保存中...');
+            $.ajax({
+                url: '/api/cookie', method: 'POST',
+                data: JSON.stringify({ content: content }), contentType: 'application/json', dataType: 'json',
+                success: function(data) {
+                    showToast(data.message || 'Cookie 已保存', 'success');
+                    if (data.data && data.data.info) updateCookieStatus(data.data.info);
+                },
+                error: function(xhr) {
+                    const msg = (xhr.responseJSON && xhr.responseJSON.message) || '保存失败';
+                    showToast(msg, 'error');
+                },
+                complete: function() { $btn.prop('disabled', false).text('💾 保存 Cookie'); }
+            });
+        }
+
+        function clearCookie() {
+            if (!confirm('确定要清空 Cookie 吗？这将导致所有需要登录的功能不可用。')) return;
+            const $btn = $('#cookie-clear-btn').prop('disabled', true).text('清空中...');
+            $.ajax({
+                url: '/api/cookie', method: 'POST',
+                data: JSON.stringify({ content: '' }), contentType: 'application/json', dataType: 'json',
+                success: function(data) {
+                    $('#cookie-content').val('');
+                    updateCookieStatus(null);
+                    showToast('Cookie 已清空', 'success');
+                },
+                error: function() { showToast('清空失败', 'error'); },
+                complete: function() { $btn.prop('disabled', false).text('🗑️ 清空 Cookie'); }
             });
         }
 

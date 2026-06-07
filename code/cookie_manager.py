@@ -37,7 +37,7 @@ class CookieException(Exception):
 class CookieManager:
     """Cookie管理器主类"""
     
-    def __init__(self, cookie_file: str = "cookie.txt"):
+    def __init__(self, cookie_file: str = "config/cookie.txt"):
         """
         初始化Cookie管理器
         
@@ -61,8 +61,9 @@ class CookieManager:
         self._ensure_cookie_file_exists()
     
     def _ensure_cookie_file_exists(self) -> None:
-        """确保Cookie文件存在"""
+        """确保Cookie文件存在（自动创建父目录）"""
         if not self.cookie_file.exists():
+            self.cookie_file.parent.mkdir(parents=True, exist_ok=True)
             self.cookie_file.touch()
             self.logger.info(f"创建Cookie文件: {self.cookie_file}")
     

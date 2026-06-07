@@ -1089,6 +1089,52 @@ def trigger_sync_now():
         return APIResponse.error(f"触发同步失败: {str(e)}", 500)
 
 
+@app.route('/api/cookie', methods=['GET'])
+def get_cookie_config():
+    """获取Cookie配置信息"""
+    try:
+        cookie_info = api_service.cookie_manager.get_cookie_info()
+        cookie_content = api_service.cookie_manager.read_cookie()
+        return APIResponse.success({
+            'info': cookie_info,
+            'content': cookie_content,
+            'file_path': str(api_service.cookie_manager.cookie_file)
+        }, "获取Cookie配置成功")
+    except Exception as e:
+        api_service.logger.error(f"获取Cookie配置异常: {e}")
+        return APIResponse.error(f"获取Cookie配置失败: {str(e)}", 500)
+
+
+@app.route('/api/cookie', methods=['POST'])
+def save_cookie_config():
+    """保存Cookie配置"""
+    try:
+        data = api_service._safe_get_request_data()
+        cookie_content = data.get('content', '').strip()
+
+        if not cookie_content:
+            # 允许清空
+            api_service.cookie_manager.clear_cookie()
+            return APIResponse.success(None, "Cookie已清空")
+
+        # 验证格式
+        if not api_service.cookie_manager.validate_cookie_format(cookie_content):
+            return APIResponse.error("Cookie格式无效，请检查内容", 400)
+
+        # 写入文件
+        api_service.cookie_manager.write_cookie(cookie_content)
+
+        # 验证保存结果
+        info = api_service.cookie_manager.get_cookie_info()
+        return APIResponse.success({
+            'info': info,
+            'saved': info['is_valid']
+        }, "Cookie配置保存成功" if info['is_valid'] else "Cookie已保存但可能不完整")
+    except Exception as e:
+        api_service.logger.error(f"保存Cookie配置异常: {e}")
+        return APIResponse.error(f"保存Cookie配置失败: {str(e)}", 500)
+
+
 def start_api_server():
     """启动API服务器"""
     try:
@@ -1126,6 +1172,8 @@ def start_api_server():
         print(f"  ├─ GET  /api/info      - API信息")
         print(f"  ├─ GET  /api-docs      - API文档页面")
         print(f"  ├─ GET  /api/api-docs  - API文档JSON")
+        print(f"  ├─ GET  /api/cookie    - Cookie配置")
+        print(f"  ├─ POST /api/cookie    - 保存Cookie")
         print(f"  ├─ GET  /logs          - 日志查看页面")
         print(f"  └─ GET  /api/logs      - 日志内容API")
         print("\n🎵 支持的音质:")
