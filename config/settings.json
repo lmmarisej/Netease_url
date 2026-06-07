@@ -3,6 +3,8 @@
   "port": 5000,
   "debug": false,
   "downloads_dir": "downloads",
+  "download_save_local": false,
+  "download_browser": true,
   "log_level": "INFO",
   "max_file_size": 524288000,
   "request_timeout": 30,

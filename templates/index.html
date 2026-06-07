@@ -486,15 +486,42 @@
             xhr.responseType = 'blob';
             xhr.onload = function() {
                 if (xhr.status === 200) {
-                    const fname = decodeURIComponent(xhr.getResponseHeader('X-Download-Filename') || 'music.flac');
-                    const blob = xhr.response;
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url; a.download = fname;
-                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                    showToast('下载完成：' + fname, 'success');
-                } else { showToast('下载失败', 'error'); }
+                    const ct = xhr.getResponseHeader('Content-Type') || '';
+                    if (ct.indexOf('application/json') >= 0) {
+                        // JSON 响应：后台保存到本地，弹窗通知
+                        const reader = new FileReader();
+                        reader.onload = function() {
+                            try {
+                                const data = JSON.parse(reader.result);
+                                if (data.success) {
+                                    showToast('✅ ' + (data.message || '已保存到本地'), 'success');
+                                } else {
+                                    showToast(data.message || '保存失败', 'error');
+                                }
+                            } catch(e) { showToast('已保存到本地', 'success'); }
+                        };
+                        reader.readAsText(xhr.response);
+                    } else {
+                        const fname = decodeURIComponent(xhr.getResponseHeader('X-Download-Filename') || 'music.flac');
+                        const blob = xhr.response;
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = fname;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                        showToast('下载完成：' + fname, 'success');
+                    }
+                } else {
+                    // 读取服务器返回的错误信息
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        try {
+                            const data = JSON.parse(reader.result);
+                            showToast(data.message || '下载失败', 'error');
+                        } catch(e) { showToast('下载失败', 'error'); }
+                    };
+                    reader.readAsText(xhr.response);
+                }
                 $('#download-progress').addClass('d-none');
                 $btn.prop('disabled', false).text('⬇️ 开始下载');
             };

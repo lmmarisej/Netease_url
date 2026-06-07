@@ -16,11 +16,15 @@ import time
 import traceback
 import os
 import json
+import tempfile
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import quote
-from flask import Flask, request, send_file, render_template, Response
+import requests
+from flask import Flask, request, send_file, render_template, Response, stream_with_context
+from threading import Thread
 
 # 将 code/ 目录添加到 Python 路径，以支持模块导入
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'code'))
@@ -48,6 +52,8 @@ class APIConfig:
     port: int = 5000
     debug: bool = False
     downloads_dir: str = 'downloads'
+    download_save_local: bool = False
+    download_browser: bool = True
     max_file_size: int = 500 * 1024 * 1024  # 500MB
     request_timeout: int = 30
     log_level: str = 'INFO'
@@ -808,6 +814,12 @@ def download_music_api():
         music_id = data.get('id')
         quality = data.get('quality', 'lossless')
         return_format = data.get('format', 'file')  # file 或 json
+
+        # 读取下载配置
+        save_local = config.download_save_local
+        browser_download = config.download_browser
+        download_dir = Path(config.downloads_dir)
+        download_dir.mkdir(parents=True, exist_ok=True)
         
         # 参数验证
         validation_error = api_service._validate_request_params({'music_id': music_id})
@@ -893,74 +905,77 @@ def download_music_api():
             safe_name = f"{music_info['name']} [{actual_quality}]"
             safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
             filename = f"{safe_name}.{music_info['file_type']}"
-            
-            file_path = api_service.downloads_path / filename
-            
-            # 检查文件是否已存在
-            if file_path.exists():
-                api_service.logger.info(f"文件已存在: {filename}")
-                operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (文件已存在)")
-                task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
+            download_url = music_info['download_url']
+
+            # 模式 3: 仅保存到本地，后台下载 + JSON 通知
+            if save_local and not browser_download:
+                file_path = download_dir / filename
+                if file_path.exists():
+                    api_service.logger.info(f"文件已存在: {filename}")
+                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (文件已存在)")
+                    task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
+                else:
+                    task_manager.update_task(task.task_id, message='正在后台下载...', progress=50)
+                    # 后台线程下载
+                    def _bg_download():
+                        try:
+                            r = requests.get(download_url, stream=True, timeout=60)
+                            r.raise_for_status()
+                            with open(file_path, 'wb') as f:
+                                for chunk in r.iter_content(chunk_size=8192):
+                                    f.write(chunk)
+                            task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
+                            operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (仅本地)")
+                        except Exception as e:
+                            task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                    Thread(target=_bg_download, daemon=True).start()
+                response_data = {
+                    'music_id': music_id,
+                    'name': music_info['name'],
+                    'artist': music_info['artist_string'],
+                    'album': music_info['album'],
+                    'quality': quality,
+                    'file_type': music_info['file_type'],
+                    'file_size': music_info['file_size'],
+                    'filename': filename,
+                    'mode': 'local_only'
+                }
+                return APIResponse.success(response_data, "已开始后台保存到本地")
+
+            # 模式 1 & 2: 流式代理（浏览器即时下载 + 可选本地保存）
+            # 打开本地文件句柄（save_local 模式）
+            if save_local:
+                file_path = download_dir / filename
+                local_f = open(file_path, 'wb')
             else:
-                # 使用优化后的下载器下载
+                local_f = None
+
+            def stream_proxy():
                 try:
-                    task_manager.update_task(task.task_id, message='正在下载文件...', progress=50)
-                    download_result = api_service.downloader.download_music_file(
-                        music_id, quality
-                    )
-                    
-                    if not download_result.success:
-                        task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=download_result.error_message or '')
-                        return APIResponse.error(f"下载失败: {download_result.error_message}", 500)
-                    
-                    file_path = Path(download_result.file_path)
-                    api_service.logger.info(f"下载完成: {filename}")
-                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality}")
+                    r = requests.get(download_url, stream=True, timeout=60)
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=65536):
+                        if local_f:
+                            local_f.write(chunk)
+                        yield chunk
                     task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
-                    
-                except DownloadException as e:
-                    api_service.logger.error(f"下载异常: {e}")
-                    task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载异常', error=str(e))
-                    return APIResponse.error(f"下载失败: {str(e)}", 500)
+                    tag = " (保存+浏览器)" if save_local else " (仅浏览器)"
+                    operation_logger.info(f"[音乐下载] ID={music_id} 歌名={song_name} 歌手={artist_name} 音质={actual_quality}{tag}")
+                except Exception as e:
+                    api_service.logger.error(f"流式下载异常: {e}")
+                    task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                finally:
+                    if local_f:
+                        local_f.close()
+
+            resp = Response(stream_with_context(stream_proxy()), mimetype=f"audio/{music_info['file_type']}")
+            resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+            resp.headers['X-Download-Filename'] = quote(filename, safe='')
+            return resp
+
         except Exception as inner_e:
             task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载过程出错', error=str(inner_e))
             raise
-        
-        # 根据返回格式返回结果
-        if return_format == 'json':
-            response_data = {
-                'music_id': music_id,
-                'name': music_info['name'],
-                'artist': music_info['artist_string'],
-                'album': music_info['album'],
-                'quality': quality,
-                'quality_name': api_service._get_quality_display_name(quality),
-                'file_type': music_info['file_type'],
-                'file_size': music_info['file_size'],
-                'file_size_formatted': api_service._format_file_size(music_info['file_size']),
-                'file_path': str(file_path.absolute()),
-                'filename': filename,
-                'duration': music_info['duration']
-            }
-            return APIResponse.success(response_data, "下载完成")
-        else:
-            # 返回文件下载
-            if not file_path.exists():
-                return APIResponse.error("文件不存在", 404)
-            
-            try:
-                response = send_file(
-                    str(file_path),
-                    as_attachment=True,
-                    download_name=filename,
-                    mimetype=f"audio/{music_info['file_type']}"
-                )
-                response.headers['X-Download-Message'] = 'Download completed successfully'
-                response.headers['X-Download-Filename'] = quote(filename, safe='')
-                return response
-            except Exception as e:
-                api_service.logger.error(f"发送文件失败: {e}")
-                return APIResponse.error(f"文件发送失败: {str(e)}", 500)
             
     except Exception as e:
         api_service.logger.error(f"下载音乐异常: {e}\n{traceback.format_exc()}")
@@ -1075,7 +1090,6 @@ def trigger_sync_now():
             return APIResponse.error("定时同步服务未启用", 400)
         
         # 在后台线程执行同步
-        from threading import Thread
         thread = Thread(target=sync_service.sync_all_playlists, daemon=True)
         thread.start()
         
@@ -1133,6 +1147,54 @@ def save_cookie_config():
     except Exception as e:
         api_service.logger.error(f"保存Cookie配置异常: {e}")
         return APIResponse.error(f"保存Cookie配置失败: {str(e)}", 500)
+
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """获取下载等通用配置"""
+    try:
+        return APIResponse.success({
+            'downloads_dir': config.downloads_dir,
+            'download_save_local': config.download_save_local,
+            'download_browser': config.download_browser,
+        }, "获取配置成功")
+    except Exception as e:
+        return APIResponse.error(f"获取配置失败: {str(e)}", 500)
+
+
+@app.route('/api/settings', methods=['POST'])
+def save_settings():
+    """保存下载等通用配置到 settings.json"""
+    try:
+        data = api_service._safe_get_request_data()
+
+        if 'downloads_dir' in data:
+            config.downloads_dir = data['downloads_dir']
+        if 'download_save_local' in data:
+            config.download_save_local = str(data['download_save_local']).lower() in ('true', '1', 'yes')
+        if 'download_browser' in data:
+            config.download_browser = str(data['download_browser']).lower() in ('true', '1', 'yes')
+
+        # 保存到 settings.json
+        settings_path = Path(SETTINGS_CONFIG_FILE)
+        current = {}
+        if settings_path.exists():
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                current = json.load(f)
+        current['downloads_dir'] = config.downloads_dir
+        current['download_save_local'] = config.download_save_local
+        current['download_browser'] = config.download_browser
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(current, f, ensure_ascii=False, indent=2)
+
+        return APIResponse.success({
+            'downloads_dir': config.downloads_dir,
+            'download_save_local': config.download_save_local,
+            'download_browser': config.download_browser,
+        }, "配置保存成功")
+    except Exception as e:
+        api_service.logger.error(f"保存配置异常: {e}")
+        return APIResponse.error(f"保存配置失败: {str(e)}", 500)
 
 
 def start_api_server():
@@ -1246,6 +1308,8 @@ if __name__ == '__main__':
     config.port = int(settings.get('port', os.getenv('PORT', '5000')))
     config.debug = settings.get('debug', os.getenv('DEBUG', 'false').lower() == 'true')
     config.downloads_dir = settings.get('downloads_dir', os.getenv('DOWNLOADS_DIR', 'downloads'))
+    config.download_save_local = settings.get('download_save_local', os.getenv('DOWNLOAD_SAVE_LOCAL', 'false').lower() in ('true', '1', 'yes'))
+    config.download_browser = settings.get('download_browser', os.getenv('DOWNLOAD_BROWSER', 'true').lower() in ('true', '1', 'yes'))
     config.log_level = settings.get('log_level', os.getenv('LOG_LEVEL', 'INFO'))
     config.max_file_size = int(settings.get('max_file_size', os.getenv('MAX_FILE_SIZE', str(config.max_file_size))))
     config.request_timeout = int(settings.get('request_timeout', os.getenv('REQUEST_TIMEOUT', str(config.request_timeout))))
