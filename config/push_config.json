@@ -1,4 +1,20 @@
 {
+  "templates": [
+    {
+      "id": "tpl_download_done",
+      "name": "下载完成通知",
+      "title": "下载完成 - {song_name}",
+      "content": "歌曲《{song_name}》下载完成\n歌手：{artist}\n音质：{quality}\n文件大小：{file_size}",
+      "type": "text"
+    },
+    {
+      "id": "tpl_sync_done",
+      "name": "同步完成通知",
+      "title": "歌单同步完成",
+      "content": "同步任务完成\n成功：{success_count}/{total_count}\n共下载：{total_synced} 首歌曲",
+      "type": "text"
+    }
+  ],
   "pushes": [
     {
       "collapsed": false,
@@ -8,6 +24,14 @@
       "name": "下载完成提示",
       "title": "网易云下载",
       "type": "text",
+      "events": [
+        "download.completed"
+      ],
+      "event_template": {
+        "title": "下载完成 - {song_name}",
+        "content": "歌曲《{song_name}》下载完成\n歌手：{artist}\n音质：{quality}\n文件大小：{file_size}",
+        "type": "text"
+      },
       "urls": [
 
       ]

@@ -76,24 +76,24 @@ class PushEventHandler:
                 if not push_events or event_value not in push_events:
                     continue
 
+                # 选了模板则渲染模板，没选则用固定内容
                 tpl = push.get('event_template', {})
-                if not tpl:
-                    tpl = {
-                        'title': push.get('title', ''),
-                        'content': push.get('content', ''),
-                        'type': push.get('type', 'text'),
-                    }
-
-                event_data = event.data.copy()
-                event_data['_event_type'] = event_value
-                event_data['_event_source'] = event.source
-                event_data['_timestamp'] = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(event.timestamp)
-                )
-
-                title = _render_template(tpl.get('title', ''), event_data)
-                content = _render_template(tpl.get('content', ''), event_data)
-                push_type = tpl.get('type', 'text')
+                if tpl and tpl.get('title'):
+                    # 使用模板渲染
+                    event_data = event.data.copy()
+                    event_data['_event_type'] = event_value
+                    event_data['_event_source'] = event.source
+                    event_data['_timestamp'] = time.strftime(
+                        '%Y-%m-%d %H:%M:%S', time.localtime(event.timestamp)
+                    )
+                    title = _render_template(tpl.get('title', ''), event_data)
+                    content = _render_template(tpl.get('content', ''), event_data)
+                    push_type = tpl.get('type', 'text')
+                else:
+                    # 使用固定内容，不替换变量
+                    title = push.get('title', '')
+                    content = push.get('content', '')
+                    push_type = push.get('type', 'text')
 
                 for url_item in push.get('urls', []):
                     if not url_item.get('enabled') or not url_item.get('url'):

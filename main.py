@@ -1377,6 +1377,80 @@ def start_api_server():
         sys.exit(1)
 
 
+# ===== 文件管理 =====
+
+@app.route('/files')
+def files_page() -> str:
+    """文件管理页面"""
+    return render_template('files.html')
+
+
+@app.route('/api/files/list', methods=['GET'])
+def api_files_list():
+    """获取下载目录文件列表"""
+    try:
+        downloads_dir = Path(config.downloads_dir)
+        downloads_dir.mkdir(exist_ok=True)
+        files = []
+        for f in sorted(downloads_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.is_file():
+                stat = f.stat()
+                files.append({
+                    'name': f.name,
+                    'size': stat.st_size,
+                    'modified': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
+                })
+        return APIResponse.success({'files': files, 'dir': str(downloads_dir.absolute())}, "文件列表获取成功")
+    except Exception as e:
+        return APIResponse.error(f"获取文件列表失败: {str(e)}", 500)
+
+
+@app.route('/api/files/delete', methods=['POST'])
+def api_files_delete():
+    """删除文件"""
+    try:
+        data = api_service._safe_get_request_data()
+        filename = data.get('filename', '').strip()
+        if not filename:
+            return APIResponse.error("文件名不能为空", 400)
+        file_path = Path(config.downloads_dir) / filename
+        # 安全检查：确保文件在 downloads 目录内
+        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+            return APIResponse.error("非法文件路径", 403)
+        if not file_path.exists():
+            return APIResponse.error("文件不存在", 404)
+        file_path.unlink()
+        api_service.logger.info(f"文件已删除: {filename}")
+        return APIResponse.success({'filename': filename}, "文件已删除")
+    except Exception as e:
+        return APIResponse.error(f"删除文件失败: {str(e)}", 500)
+
+
+@app.route('/api/files/stream/<path:filename>', methods=['GET'])
+def api_files_stream(filename):
+    """流式传输文件（用于音频播放和下载）"""
+    try:
+        file_path = Path(config.downloads_dir) / filename
+        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+            return APIResponse.error("非法文件路径", 403)
+        if not file_path.exists():
+            return APIResponse.error("文件不存在", 404)
+
+        download = request.args.get('download', '0') == '1'
+        mimetype = 'application/octet-stream'
+        ext = file_path.suffix.lower()
+        mime_map = {'.mp3': 'audio/mpeg', '.flac': 'audio/flac', '.m4a': 'audio/mp4',
+                     '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.wma': 'audio/x-ms-wma'}
+        mimetype = mime_map.get(ext, mimetype)
+
+        response = send_file(str(file_path), mimetype=mimetype, as_attachment=download)
+        if not download:
+            response.headers['Accept-Ranges'] = 'bytes'
+        return response
+    except Exception as e:
+        return APIResponse.error(f"文件传输失败: {str(e)}", 500)
+
+
 if __name__ == '__main__':
     # 加载.env文件
     try:
