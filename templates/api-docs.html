@@ -87,11 +87,41 @@
         }
 
         .endpoint-block {
-            padding: 20px 24px;
+            padding: 0;
             border-bottom: 1px solid #f0f0f0;
         }
         .endpoint-block:last-child {
             border-bottom: none;
+        }
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 24px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+            flex-wrap: wrap;
+        }
+        .endpoint-header:hover {
+            background: #f8faff;
+        }
+        .endpoint-header .toggle-icon {
+            margin-left: auto;
+            font-size: 12px;
+            color: #999;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+        .endpoint-header.expanded .toggle-icon {
+            transform: rotate(180deg);
+        }
+        .endpoint-body {
+            display: none;
+            padding: 0 24px 20px 24px;
+        }
+        .endpoint-body.show {
+            display: block;
         }
         .endpoint-title {
             display: flex;
@@ -383,14 +413,24 @@
                 html += renderResponseFormat(data.api.response_format);
 
                 $('#api-header-area').html(html);
+
+                // 绑定端点折叠/展开点击事件
+                $('#api-header-area').on('click', '.endpoint-header', function() {
+                    const targetId = $(this).data('target');
+                    const $body = $('#' + targetId);
+                    const $header = $(this);
+                    $body.toggleClass('show');
+                    $header.toggleClass('expanded');
+                });
             }
 
             function renderEndpoint(ep) {
+                const epId = 'ep-' + slugify(ep.path.replace(/\//g, '-'));
                 let html = '<div class="endpoint-block">';
 
-                // 方法标签 + 路径
+                // 可点击的头部（方法 + 路径 + 描述）
                 const methods = (ep.method || 'GET').split(/,\s*/);
-                html += '<div class="endpoint-title">';
+                html += `<div class="endpoint-header" data-target="${epId}">`;
                 methods.forEach(function(m) {
                     html += `<span class="method-badge ${m.toLowerCase().trim()}">${m.trim()}</span>`;
                 });
@@ -400,10 +440,14 @@
                         html += `<span class="alias-tag">别名: ${escapeHtml(alias)}</span>`;
                     });
                 }
+                html += '<span class="toggle-icon">▼</span>';
                 html += '</div>';
 
-                // 描述
-                html += `<p class="endpoint-desc">${escapeHtml(ep.description)}</p>`;
+                // 描述（在头部下方可见）
+                html += `<p class="endpoint-desc" style="padding:0 24px 12px;">${escapeHtml(ep.description)}</p>`;
+
+                // 可折叠的详情
+                html += `<div class="endpoint-body" id="${epId}">`;
 
                 // 参数
                 if (ep.parameters && ep.parameters.length > 0) {
@@ -441,7 +485,8 @@
                     html += `<div class="response-json">${escapeHtml(JSON.stringify(ep.example_response, null, 2))}</div>`;
                 }
 
-                html += '</div>';
+                html += '</div>'; // endpoint-body
+                html += '</div>'; // endpoint-block
                 return html;
             }
 
