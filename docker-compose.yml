@@ -10,7 +10,7 @@ services:
       - /vol3/1000/音乐/网易云/Download:/app/downloads
       # 持久化配置文件（settings.json, sync_config.json, cookie.txt）
       - ./config:/app/config
-      - ./cookie.txt:/app/cookie.txt
+      - ./config/cookie.txt:/app/cookie.txt
       - ./logs:/app/logs
     environment:
       - PORT=5000

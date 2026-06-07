@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM docker.m.daocloud.io/library/python:3.12-slim
 WORKDIR /app
 
 # 安装依赖（使用阿里云镜像加速）
