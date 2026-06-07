@@ -199,6 +199,10 @@
                         🔄 刷新
                     </button>
 
+                    <button class="btn btn-sm btn-outline-danger" id="cleanup-btn" title="清空所有日志文件">
+                        🗑️ 清空日志
+                    </button>
+
                     <span class="ms-auto">
                         <span class="line-count-badge" id="line-count">--</span>
                     </span>
@@ -253,6 +257,36 @@
             // 切换日志文件
             $('#file-select').on('change', function() {
                 fetchLogs();
+            });
+
+            // 清理日志按钮
+            $('#cleanup-btn').on('click', function() {
+                if (!confirm('确定要清空所有日志文件吗？此操作不可恢复。')) {
+                    return;
+                }
+                const $btn = $(this);
+                $btn.prop('disabled', true).text('清理中...');
+
+                $.ajax({
+                    url: '/api/logs/cleanup',
+                    method: 'POST',
+                    dataType: 'json',
+                    success: function(response) {
+                        if (response.success) {
+                            const cleaned = response.data.cleaned || [];
+                            alert('✅ 已清空 ' + cleaned.length + ' 个日志文件：\n' + cleaned.join(', '));
+                            fetchLogs();
+                        } else {
+                            alert('❌ ' + (response.message || '清理失败'));
+                        }
+                    },
+                    error: function() {
+                        alert('❌ 清理日志失败，请重试');
+                    },
+                    complete: function() {
+                        $btn.prop('disabled', false).text('🗑️ 清空日志');
+                    }
+                });
             });
 
             function fetchLogs() {

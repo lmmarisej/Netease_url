@@ -10,6 +10,7 @@
 """
 
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 import time
 import traceback
@@ -194,11 +195,17 @@ class MusicAPIService:
             console_handler.setFormatter(console_formatter)
             logger.addHandler(console_handler)
             
-            # 文件处理器
+            # 文件处理器（单个日志文件最大 2MB，保留 3 个备份）
             try:
                 logs_dir = Path('logs')
                 logs_dir.mkdir(exist_ok=True)
-                file_handler = logging.FileHandler(str(logs_dir / 'music_api.log'), encoding='utf-8')
+                log_max_size = 2 * 1024 * 1024  # 2MB
+                file_handler = RotatingFileHandler(
+                    str(logs_dir / 'music_api.log'),
+                    maxBytes=log_max_size,
+                    backupCount=3,
+                    encoding='utf-8'
+                )
                 file_formatter = logging.Formatter(
                     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
                 )
@@ -463,6 +470,30 @@ def api_logs():
     except Exception as e:
         api_service.logger.error(f"获取日志失败: {e}")
         return APIResponse.error(f"获取日志失败: {str(e)}", 500)
+
+
+@app.route('/api/logs/cleanup', methods=['POST'])
+def api_logs_cleanup():
+    """清理日志文件——清空所有 .log 文件内容"""
+    try:
+        logs_dir = Path('logs')
+        logs_dir.mkdir(exist_ok=True)
+
+        cleaned = []
+        for log_file in logs_dir.glob('*.log'):
+            # 清空文件内容
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write('')
+            cleaned.append(log_file.name)
+            api_service.logger.info(f"已清空日志文件: {log_file.name}")
+
+        if not cleaned:
+            return APIResponse.success({'cleaned': []}, "没有可清理的日志文件")
+
+        return APIResponse.success({'cleaned': cleaned}, f"已清空 {len(cleaned)} 个日志文件")
+    except Exception as e:
+        api_service.logger.error(f"清理日志失败: {e}")
+        return APIResponse.error(f"清理日志失败: {str(e)}", 500)
 
 
 @app.route('/health', methods=['GET'])

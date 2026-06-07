@@ -10,6 +10,7 @@
 import os
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -99,12 +100,17 @@ class PlaylistSyncService:
             console_handler.setFormatter(console_formatter)
             logger.addHandler(console_handler)
             
-            # 文件处理器
+            # 文件处理器（单个日志文件最大 2MB，保留 3 个备份）
             try:
                 logs_dir = Path('logs')
                 logs_dir.mkdir(exist_ok=True)
                 log_file = logs_dir / 'playlist_sync.log'
-                file_handler = logging.FileHandler(str(log_file), encoding='utf-8')
+                file_handler = RotatingFileHandler(
+                    str(log_file),
+                    maxBytes=2 * 1024 * 1024,
+                    backupCount=3,
+                    encoding='utf-8'
+                )
                 file_formatter = logging.Formatter(
                     '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
                 )
