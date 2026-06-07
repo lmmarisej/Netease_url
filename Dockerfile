@@ -12,7 +12,6 @@ COPY main.py entrypoint.sh ./
 COPY code/ ./code/
 COPY config/ ./config/
 COPY templates/ ./templates/
-COPY cookie.txt ./
 
 # 创建运行时目录
 RUN chmod +x /app/entrypoint.sh && \
