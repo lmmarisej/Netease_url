@@ -34,6 +34,7 @@ try:
     from cookie_manager import CookieManager, CookieException
     from music_downloader import MusicDownloader, DownloadException, AudioFormat
     from playlist_sync import PlaylistSyncConfig, PlaylistSyncService, init_sync_service, get_sync_service
+    from task_manager import task_manager, TaskManager, TaskStatus, TaskInfo
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
@@ -496,6 +497,57 @@ def api_logs_cleanup():
         return APIResponse.error(f"清理日志失败: {str(e)}", 500)
 
 
+@app.route('/tasks')
+def tasks_page() -> str:
+    """任务监控页面路由"""
+    return render_template('tasks.html')
+
+
+@app.route('/api/tasks', methods=['GET'])
+def api_tasks_list():
+    """获取任务列表"""
+    try:
+        task_type = request.args.get('type', '')
+        status = request.args.get('status', '')
+        limit = int(request.args.get('limit', 50))
+        tasks = task_manager.get_tasks(
+            task_type=task_type or None,
+            status=status or None,
+            limit=limit
+        )
+        return APIResponse.success(
+            [task_manager.task_to_dict(t) for t in tasks],
+            "任务列表获取成功"
+        )
+    except Exception as e:
+        api_service.logger.error(f"获取任务列表失败: {e}")
+        return APIResponse.error(f"获取任务列表失败: {str(e)}", 500)
+
+
+@app.route('/api/tasks/<task_id>', methods=['GET'])
+def api_task_detail(task_id):
+    """获取单个任务详情"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        return APIResponse.error("任务不存在", 404)
+    return APIResponse.success(task_manager.task_to_dict(task), "任务详情获取成功")
+
+
+@app.route('/api/tasks/<task_id>', methods=['DELETE'])
+def api_task_remove(task_id):
+    """删除任务记录"""
+    if task_manager.remove_task(task_id):
+        return APIResponse.success(None, "任务已删除")
+    return APIResponse.error("任务不存在", 404)
+
+
+@app.route('/api/tasks/clear', methods=['POST'])
+def api_tasks_clear():
+    """清理已完成的任务"""
+    count = task_manager.clear_completed()
+    return APIResponse.success({'cleared': count}, f"已清理 {count} 个已完成任务")
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """健康检查API"""
@@ -751,58 +803,82 @@ def download_music_api():
         music_id = api_service._extract_music_id(music_id)
         cookies = api_service._get_cookies()
         
-        # 获取音乐基本信息
-        song_info = name_v1(music_id)
-        if not song_info or 'songs' not in song_info or not song_info['songs']:
-            return APIResponse.error("未找到音乐信息", 404)
+        # 创建下载任务
+        task = task_manager.create_task('download', f'下载中...', music_id=music_id, quality=quality)
         
-        # 获取音乐下载链接
-        url_info = url_v1(music_id, quality, cookies)
-        if not url_info or 'data' not in url_info or not url_info['data'] or not url_info['data'][0].get('url'):
-            return APIResponse.error("无法获取音乐下载链接，可能是版权限制或音质不支持", 404)
-        
-        # 构建音乐信息
-        song_data = song_info['songs'][0]
-        url_data = url_info['data'][0]
-        
-        music_info = {
-            'id': music_id,
-            'name': song_data['name'],
-            'artist_string': ', '.join(artist['name'] for artist in song_data['ar']),
-            'album': song_data['al']['name'],
-            'pic_url': song_data['al']['picUrl'],
-            'file_type': url_data['type'],
-            'file_size': url_data['size'],
-            'duration': song_data.get('dt', 0),
-            'download_url': url_data['url']
-        }
-        
-        # 生成安全文件名
-        safe_name = f"{music_info['name']} [{quality}]"
-        safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
-        filename = f"{safe_name}.{music_info['file_type']}"
-        
-        file_path = api_service.downloads_path / filename
-        
-        # 检查文件是否已存在
-        if file_path.exists():
-            api_service.logger.info(f"文件已存在: {filename}")
-        else:
-            # 使用优化后的下载器下载
-            try:
-                download_result = api_service.downloader.download_music_file(
-                    music_id, quality
-                )
-                
-                if not download_result.success:
-                    return APIResponse.error(f"下载失败: {download_result.error_message}", 500)
-                
-                file_path = Path(download_result.file_path)
-                api_service.logger.info(f"下载完成: {filename}")
-                
-            except DownloadException as e:
-                api_service.logger.error(f"下载异常: {e}")
-                return APIResponse.error(f"下载失败: {str(e)}", 500)
+        try:
+            # 获取音乐基本信息
+            task_manager.update_task(task.task_id, status=TaskStatus.RUNNING, message='正在获取歌曲信息...', progress=10)
+            song_info = name_v1(music_id)
+            if not song_info or 'songs' not in song_info or not song_info['songs']:
+                task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='未找到音乐信息', error='歌曲不存在')
+                return APIResponse.error("未找到音乐信息", 404)
+            
+            # 获取音乐下载链接
+            task_manager.update_task(task.task_id, message='正在获取下载链接...', progress=30)
+            url_info = url_v1(music_id, quality, cookies)
+            if not url_info or 'data' not in url_info or not url_info['data'] or not url_info['data'][0].get('url'):
+                task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='无法获取下载链接', error='版权限制或音质不支持')
+                return APIResponse.error("无法获取音乐下载链接，可能是版权限制或音质不支持", 404)
+            
+            # 构建音乐信息
+            song_data = song_info['songs'][0]
+            url_data = url_info['data'][0]
+            song_name = song_data['name']
+            artist_name = ', '.join(artist['name'] for artist in song_data['ar'])
+            
+            task_manager.update_task(task.task_id, name=song_name, extra={
+                'artist': artist_name,
+                'album': song_data['al']['name'],
+                'quality': quality
+            })
+            
+            music_info = {
+                'id': music_id,
+                'name': song_name,
+                'artist_string': artist_name,
+                'album': song_data['al']['name'],
+                'pic_url': song_data['al']['picUrl'],
+                'file_type': url_data['type'],
+                'file_size': url_data['size'],
+                'duration': song_data.get('dt', 0),
+                'download_url': url_data['url']
+            }
+            
+            # 生成安全文件名
+            safe_name = f"{music_info['name']} [{quality}]"
+            safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
+            filename = f"{safe_name}.{music_info['file_type']}"
+            
+            file_path = api_service.downloads_path / filename
+            
+            # 检查文件是否已存在
+            if file_path.exists():
+                api_service.logger.info(f"文件已存在: {filename}")
+                task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
+            else:
+                # 使用优化后的下载器下载
+                try:
+                    task_manager.update_task(task.task_id, message='正在下载文件...', progress=50)
+                    download_result = api_service.downloader.download_music_file(
+                        music_id, quality
+                    )
+                    
+                    if not download_result.success:
+                        task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=download_result.error_message or '')
+                        return APIResponse.error(f"下载失败: {download_result.error_message}", 500)
+                    
+                    file_path = Path(download_result.file_path)
+                    api_service.logger.info(f"下载完成: {filename}")
+                    task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
+                    
+                except DownloadException as e:
+                    api_service.logger.error(f"下载异常: {e}")
+                    task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载异常', error=str(e))
+                    return APIResponse.error(f"下载失败: {str(e)}", 500)
+        except Exception as inner_e:
+            task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载过程出错', error=str(inner_e))
+            raise
         
         # 根据返回格式返回结果
         if return_format == 'json':

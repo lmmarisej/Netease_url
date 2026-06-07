@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务监控 - 网易云音乐工具箱</title>
+    <link href="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f5f6fa; color: #333; }
+        .sidebar { min-height: 100vh; background-color: #fff; border-right: 1px solid #dee2e6; }
+        .sidebar .nav-link { color: #495057; padding: 12px 20px; border-radius: 0; transition: all 0.2s; }
+        .sidebar .nav-link:hover { background-color: #f8f9fa; color: #0d6efd; }
+        .sidebar .nav-link.active { background-color: #0d6efd; color: #fff; }
+        .sidebar .nav-link i { margin-right: 8px; }
+        .content-area { padding: 24px 30px; }
+
+        .page-title { font-weight: 700; font-size: 22px; margin-bottom: 20px; }
+
+        .task-toolbar { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .task-toolbar .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .status-dot.live { background: #22c55e; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+        .task-card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); padding: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px; transition: box-shadow 0.15s; }
+        .task-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.08); }
+        .task-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+        .task-icon.pending { background: #fef3c7; color: #d97706; }
+        .task-icon.running { background: #dbeafe; color: #2563eb; }
+        .task-icon.completed { background: #d1fae5; color: #059669; }
+        .task-icon.failed { background: #fee2e2; color: #dc2626; }
+        .task-icon.cancelled { background: #f3f4f6; color: #6b7280; }
+        .task-info { flex: 1; min-width: 0; }
+        .task-info .name { font-weight: 600; font-size: 15px; }
+        .task-info .meta { font-size: 12px; color: #888; margin-top: 2px; }
+        .task-status-badge { font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 600; flex-shrink: 0; }
+        .task-status-badge.pending { background: #fef3c7; color: #92400e; }
+        .task-status-badge.running { background: #dbeafe; color: #1e40af; }
+        .task-status-badge.completed { background: #d1fae5; color: #065f46; }
+        .task-status-badge.failed { background: #fee2e2; color: #991b1b; }
+        .task-status-badge.cancelled { background: #f3f4f6; color: #374151; }
+        .task-progress { width: 80px; flex-shrink: 0; }
+        .task-actions { flex-shrink: 0; }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #999; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        .filter-btn.active { font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-3 col-lg-2 sidebar p-0">
+                <div class="p-3 border-bottom"><h5 class="mb-0">🎵 网易云工具箱</h5></div>
+                <nav class="nav flex-column mt-3">
+                    <a class="nav-link" href="/"><i>🏠</i> 业务操作</a>
+                    <a class="nav-link" href="/config"><i>⚙️</i> 定时同步配置</a>
+                    <a class="nav-link active" href="/tasks"><i>📊</i> 任务监控</a>
+                    <a class="nav-link" href="/api-docs"><i>📖</i> API 接口文档</a>
+                    <a class="nav-link" href="/logs"><i>📋</i> 运行日志</a>
+                </nav>
+            </div>
+
+            <div class="col-md-9 col-lg-10 content-area">
+                <div class="page-title">📊 任务监控</div>
+
+                <div class="task-toolbar">
+                    <div><span class="status-dot live"></span> <small class="text-muted">自动刷新 (3s)</small></div>
+                    <div class="btn-group btn-group-sm" id="filter-btns">
+                        <button class="btn btn-outline-secondary filter-btn active" data-status="">全部</button>
+                        <button class="btn btn-outline-secondary filter-btn" data-status="running">执行中</button>
+                        <button class="btn btn-outline-secondary filter-btn" data-status="completed">已完成</button>
+                        <button class="btn btn-outline-secondary filter-btn" data-status="failed">失败</button>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger ms-auto" id="clear-btn">🗑️ 清理已完成</button>
+                </div>
+
+                <div id="task-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://mirrors.sustech.edu.cn/cdnjs/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentFilter = '';
+        let refreshTimer = null;
+
+        $(document).ready(function() {
+            fetchTasks();
+            refreshTimer = setInterval(fetchTasks, 3000);
+
+            $('#filter-btns .filter-btn').on('click', function() {
+                $('#filter-btns .filter-btn').removeClass('active');
+                $(this).addClass('active');
+                currentFilter = $(this).data('status');
+                fetchTasks();
+            });
+
+            $('#clear-btn').on('click', function() {
+                if (!confirm('确定要清理所有已完成/失败的任务记录吗？')) return;
+                $.post('/api/tasks/clear', function(data) {
+                    if (data.success) fetchTasks();
+                }, 'json');
+            });
+
+            $(document).on('click', '.task-delete', function() {
+                const tid = $(this).data('id');
+                $.ajax({ url: '/api/tasks/' + tid, method: 'DELETE', success: function() { fetchTasks(); } });
+            });
+        });
+
+        function fetchTasks() {
+            let url = '/api/tasks?limit=50';
+            if (currentFilter) url += '&status=' + currentFilter;
+            $.getJSON(url, function(response) {
+                if (!response.success) return;
+                const tasks = response.data || [];
+                const $list = $('#task-list').empty();
+
+                if (tasks.length === 0) {
+                    $list.html('<div class="empty-state"><div class="icon">📊</div><p>暂无任务记录</p><small>下载音乐后任务记录会出现在这里</small></div>');
+                    return;
+                }
+
+                tasks.forEach(function(t) {
+                    const iconMap = { pending: '⏳', running: '🔄', completed: '✅', failed: '❌', cancelled: '🚫' };
+                    const timeStr = new Date(t.created_at * 1000).toLocaleString('zh-CN');
+                    const extra = t.extra || {};
+                    const metaParts = [];
+                    if (extra.artist) metaParts.push(extra.artist);
+                    if (extra.album) metaParts.push(extra.album);
+                    if (extra.quality) metaParts.push(extra.quality);
+
+                    $list.append(`<div class="task-card">
+                        <div class="task-icon ${t.status}">${iconMap[t.status] || '📌'}</div>
+                        <div class="task-info">
+                            <div class="name">${escHtml(t.name)}</div>
+                            <div class="meta">${metaParts.join(' · ')} | ${timeStr}</div>
+                            ${t.error ? '<div class="text-danger small mt-1">错误: ' + escHtml(t.error) + '</div>' : ''}
+                            ${t.message ? '<div class="text-muted small">' + escHtml(t.message) + '</div>' : ''}
+                        </div>
+                        ${t.status === 'running' ? '<div class="task-progress"><div class="progress" style="height:6px;"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:' + t.progress + '%"></div></div><small class="text-muted">' + t.progress + '%</small></div>' : ''}
+                        <span class="task-status-badge ${t.status}">${statusLabel(t.status)}</span>
+                        <div class="task-actions ms-2">
+                            <button class="btn btn-sm btn-outline-secondary task-delete" data-id="${t.task_id}" title="删除">✕</button>
+                        </div>
+                    </div>`);
+                });
+            }).fail(function() { /* ignore */ });
+        }
+
+        function statusLabel(s) {
+            const map = { pending: '等待', running: '执行中', completed: '完成', failed: '失败', cancelled: '取消' };
+            return map[s] || s;
+        }
+
+        function escHtml(s) {
+            if (!s) return '';
+            const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+        }
+    </script>
+</body>
+</html>
