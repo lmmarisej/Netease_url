@@ -161,12 +161,13 @@ async function doAlbum() {
   let aid = albumInput.value.trim()
   if (!aid) return window.__snackbar?.('请输入专辑ID', 'warning')
   const m = aid.match(/album\?id=(\d+)/); if (m) aid = m[1]
-  saveHistory('album', { id: aid, name: aid }); albumHistory.value = loadHistory('album')
+  saveHistory('album', { id: aid, name: '' }); albumHistory.value = loadHistory('album')
   albumLoading.value = true
   try {
     const r = await getAlbum({ id: aid })
     if (r?.status === 200 && r.data?.album) {
       const al = r.data.album; albumHeader.value = al
+      saveHistory('album', { id: aid, name: al.name || aid }); albumHistory.value = loadHistory('album')
       albumTracks.value = (al.songs || []).map((s, i) => ({ ...s, _idx: i + 1 }))
       albumChecked.value = []; albumFilter.value = ''
     } else { albumHeader.value = null; albumTracks.value = []; window.__snackbar?.('专辑解析失败', 'error') }
