@@ -84,7 +84,7 @@ const menuItems = [
   { to: '/files', icon: 'mdi-folder-multiple', title: '文件管理' },
   { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
   { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },
-  { to: '/tasks', icon: 'mdi-chart-bar', title: '任务监控' },
+  { to: '/tasks', icon: 'mdi-chart-bar', title: '任务管理' },
   { to: '/logs', icon: 'mdi-text-box-outline', title: '运行日志' },
   { to: '/api-docs', icon: 'mdi-code-json', title: 'API 文档' },
 ]

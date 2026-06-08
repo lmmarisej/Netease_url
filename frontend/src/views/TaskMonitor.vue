@@ -3,7 +3,7 @@
   <div>
     <div class="d-flex align-center mb-6">
       <v-icon size="32" color="primary" class="mr-3">mdi-chart-bar</v-icon>
-      <h2 class="text-h4 font-weight-bold">任务监控</h2>
+      <h2 class="text-h4 font-weight-bold">任务管理</h2>
     </div>
 
     <v-card class="mb-6" variant="flat" color="surface-variant">

@@ -101,7 +101,7 @@ export function getFileStreamUrl(filename, download = false) {
   return `/api/files/stream/${encodeURIComponent(filename)}${download ? '?download=1' : ''}`
 }
 
-// ==================== 任务监控 ====================
+// ==================== 任务管理 ====================
 
 export function getTasks() {
   return api.get('/api/tasks')
