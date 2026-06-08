@@ -140,6 +140,13 @@
                     </div>
                     <div class="history-area" id="playlist-history"></div>
                     <div id="playlist-header"></div>
+                    <div id="playlist-batch-toolbar" style="display:none;margin-bottom:8px;display:none;" class="d-flex align-items-center gap-2 flex-wrap">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="batchSelectAll('playlist')">全选</button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="batchInvert('playlist')">反选</button>
+                        <input class="form-control form-control-sm" id="playlist-filter-keyword" placeholder="关键词筛选" style="width:130px;" oninput="batchFilterByKeyword('playlist')">
+                        <button class="btn btn-warning btn-sm" onclick="batchDownload('playlist')">📥 批量下载选中</button>
+                        <span class="text-muted small" id="playlist-batch-count"></span>
+                    </div>
                     <div class="track-list" id="playlist-tracks"></div>
                 </div>
 
@@ -154,6 +161,13 @@
                     </div>
                     <div class="history-area" id="album-history"></div>
                     <div id="album-header"></div>
+                    <div id="album-batch-toolbar" style="display:none;margin-bottom:8px;" class="d-flex align-items-center gap-2 flex-wrap">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="batchSelectAll('album')">全选</button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="batchInvert('album')">反选</button>
+                        <input class="form-control form-control-sm" id="album-filter-keyword" placeholder="关键词筛选" style="width:130px;" oninput="batchFilterByKeyword('album')">
+                        <button class="btn btn-warning btn-sm" onclick="batchDownload('album')">📥 批量下载选中</button>
+                        <span class="text-muted small" id="album-batch-count"></span>
+                    </div>
                     <div class="track-list" id="album-tracks"></div>
                 </div>
 
@@ -320,8 +334,10 @@
                         </div>
                     </div>`);
                     const $t = $('#playlist-tracks').empty();
+                    $('#playlist-batch-toolbar').show();
                     (pl.tracks || []).forEach(function(s, i) {
-                        $t.append(`<div class="track-item">
+                        $t.append(`<div class="track-item" data-keyword="${escHtml(s.name)} ${escHtml(s.artists||'')}">
+                            <input type="checkbox" class="track-check-playlist" value="${s.id}" data-name="${escHtml(s.name)}" onchange="updateBatchCount('playlist')">
                             <span class="idx">${i+1}</span>
                             <div class="info">
                                 <div class="name text-ellipsis">${escHtml(s.name)}</div>
@@ -333,6 +349,7 @@
                             </div>
                         </div>`);
                     });
+                    updateBatchCount('playlist');
                 } else {
                     $('#playlist-tracks').html('<div class="p-4 text-center text-muted">歌单解析失败</div>');
                 }
@@ -360,8 +377,10 @@
                         </div>
                     </div>`);
                     const $t = $('#album-tracks').empty();
+                    $('#album-batch-toolbar').show();
                     (al.songs || []).forEach(function(s, i) {
-                        $t.append(`<div class="track-item">
+                        $t.append(`<div class="track-item" data-keyword="${escHtml(s.name)} ${escHtml(s.artists||'')}">
+                            <input type="checkbox" class="track-check-album" value="${s.id}" data-name="${escHtml(s.name)}" onchange="updateBatchCount('album')">
                             <span class="idx">${i+1}</span>
                             <div class="info">
                                 <div class="name text-ellipsis">${escHtml(s.name)}</div>
@@ -373,6 +392,7 @@
                             </div>
                         </div>`);
                     });
+                    updateBatchCount('album');
                 } else {
                     $('#album-tracks').html('<div class="p-4 text-center text-muted">专辑解析失败</div>');
                 }
@@ -642,6 +662,51 @@
         $(function() {
             ['search', 'playlist', 'album', 'download'].forEach(renderHistory);
         });
+
+        // ===== 批量下载 =====
+        function batchSelectAll(type) {
+            $('.track-check-' + type).each(function() {
+                $(this).prop('checked', $(this).closest('.track-item').is(':visible'));
+            });
+            updateBatchCount(type);
+        }
+        function batchInvert(type) {
+            $('.track-check-' + type).each(function() {
+                if ($(this).closest('.track-item').is(':visible')) {
+                    $(this).prop('checked', !$(this).prop('checked'));
+                }
+            });
+            updateBatchCount(type);
+        }
+        function batchFilterByKeyword(type) {
+            var kw = $('#' + type + '-filter-keyword').val().trim().toLowerCase();
+            $('.track-check-' + type).each(function() {
+                var row = $(this).closest('.track-item');
+                var text = (row.data('keyword') || '').toLowerCase();
+                var match = !kw || text.indexOf(kw) >= 0;
+                row.toggle(match);
+                if (!match) $(this).prop('checked', false);
+            });
+            updateBatchCount(type);
+        }
+        function updateBatchCount(type) {
+            var checked = $('.track-check-' + type + ':checked').length;
+            var visible = $('.track-check-' + type + ':visible').length;
+            $('#' + type + '-batch-count').text(checked > 0 ? '已选 ' + checked + '/' + visible + ' 首' : '');
+        }
+        function batchDownload(type) {
+            var ids = [];
+            $('.track-check-' + type + ':checked').each(function() { ids.push({id:$(this).val(), name:$(this).data('name')}); });
+            if (ids.length === 0) return showToast('请先勾选要下载的歌曲', 'warning');
+            if (!confirm('确定批量下载 ' + ids.length + ' 首歌曲？')) return;
+            var done = 0, total = ids.length;
+            ids.forEach(function(item) {
+                $.ajax({ url: '/download', method: 'POST', data: JSON.stringify({id:item.id,quality:'lossless'}), contentType: 'application/json', dataType: 'json',
+                    success: function() { done++; if (done===total) showToast('批量下载完成 ' + total + ' 首', 'success'); },
+                    error: function() { done++; if (done===total) showToast('批量下载完成（部分可能失败）', 'warning'); }
+                });
+            });
+        }
 
         function escHtml(s) {
             if (!s) return '';
