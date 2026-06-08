@@ -935,7 +935,11 @@ def download_music_api():
             
             # 生成安全文件名
             quality_labels = {'standard':'标准','exhigh':'极高','lossless':'无损','hires':'Hi-Res','sky':'环绕声','jyeffect':'高清环绕','jymaster':'母带'}
-            safe_name = f"{music_info['name']} [{quality_labels.get(actual_quality, actual_quality)}]"
+            include_quality = getattr(config, 'download_quality_in_filename', True)
+            if include_quality:
+                safe_name = f"{music_info['name']} [{quality_labels.get(actual_quality, actual_quality)}]"
+            else:
+                safe_name = music_info['name']
             safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
             filename = f"{safe_name}.{music_info['file_type']}"
             download_url = music_info['download_url']
@@ -1235,6 +1239,7 @@ def get_settings():
             'download_save_local': config.download_save_local,
             'download_browser': config.download_browser,
             'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
+            'download_quality_in_filename': getattr(config, 'download_quality_in_filename', True),
         }, "获取配置成功")
     except Exception as e:
         return APIResponse.error(f"获取配置失败: {str(e)}", 500)
@@ -1254,6 +1259,8 @@ def save_settings():
             config.download_browser = str(data['download_browser']).lower() in ('true', '1', 'yes')
         if 'download_default_quality' in data:
             config.download_default_quality = data['download_default_quality']
+        if 'download_quality_in_filename' in data:
+            config.download_quality_in_filename = str(data['download_quality_in_filename']).lower() in ('true', '1', 'yes')
 
         # 保存到 settings.json
         settings_path = Path(SETTINGS_CONFIG_FILE)
@@ -1265,6 +1272,7 @@ def save_settings():
         current['download_save_local'] = config.download_save_local
         current['download_browser'] = config.download_browser
         current['download_default_quality'] = getattr(config, 'download_default_quality', 'lossless')
+        current['download_quality_in_filename'] = getattr(config, 'download_quality_in_filename', True)
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(current, f, ensure_ascii=False, indent=2)
 
@@ -1279,6 +1287,7 @@ def save_settings():
             'download_save_local': config.download_save_local,
             'download_browser': config.download_browser,
             'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
+            'download_quality_in_filename': getattr(config, 'download_quality_in_filename', True),
         }, "配置保存成功")
     except Exception as e:
         api_service.logger.error(f"保存配置异常: {e}")
