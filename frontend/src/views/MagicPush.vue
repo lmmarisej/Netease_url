@@ -9,6 +9,7 @@
           <v-card-title class="d-flex align-center py-3" style="background:rgb(var(--v-theme-surface-variant));">
             <v-icon size="20" class="mr-2">mdi-bell</v-icon><span class="text-subtitle-1 font-weight-bold cursor-pointer flex-1-1" @click="push._collapsed=!push._collapsed">{{ push.name||'未命名' }}</span>
             <v-switch :model-value="push.enabled!==false" label="启用" color="success" hide-details density="compact" class="mr-3" @click.stop @update:model-value="v=>updatePush(push.id,'enabled',v)"/>
+            <v-btn size="small" color="error" variant="text" prepend-icon="mdi-delete" class="mr-1" @click.stop="removePush(push.id)">删除</v-btn>
             <v-icon size="small" class="cursor-pointer" @click="push._collapsed=!push._collapsed">{{ push._collapsed?'mdi-chevron-down':'mdi-chevron-up' }}</v-icon>
           </v-card-title>
           <v-expand-transition>
@@ -40,7 +41,6 @@
                 </div>
               </div>
               <div class="text-caption text-medium-emphasis mt-2">可用变量：{song_name} {artist} {quality} {file_size} {error} {music_id} {playlist_name} {total_synced} {success_count} {total_count} {keyword}</div>
-              <div class="mt-3"><v-btn size="small" color="error" variant="tonal" prepend-icon="mdi-delete" @click="removePush(push.id)">删除此推送</v-btn></div>
             </v-card-text>
           </v-expand-transition>
         </v-card>
