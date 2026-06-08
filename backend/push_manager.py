@@ -125,12 +125,6 @@ def init_push_routes(app, api_service):
     event_bus.subscribe('*', handler.handle)
     api_service.logger.info("事件推送处理器已注册")
 
-    # ==================== 推送页面 ====================
-
-    @app.route('/magicpush')
-    def magicpush_page():
-        return render_template('magicpush.html')
-
     # ==================== 推送配置 API ====================
 
     @app.route('/api/push/config', methods=['GET'])

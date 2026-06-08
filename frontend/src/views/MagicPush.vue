@@ -6,20 +6,18 @@
       <v-window-item value="push">
         <div v-if="!pushConfig.pushes||!pushConfig.pushes.length" class="text-center text-medium-emphasis py-8"><v-icon size="48" class="mb-3">mdi-bell-ring-outline</v-icon><p>暂无推送配置</p></div>
         <v-card v-for="push in (pushConfig.pushes||[])" :key="push.id" class="mb-4">
-          <v-card-title class="d-flex align-center py-3 cursor-pointer" style="background:rgb(var(--v-theme-surface-variant));" @click="push._collapsed=!push._collapsed">
-            <v-icon size="20" class="mr-2">mdi-bell</v-icon><span class="text-subtitle-1 font-weight-bold">{{ push.name||'未命名' }}</span><v-spacer/>
-            <v-chip v-if="push.enabled!==false" size="x-small" color="success" variant="tonal" class="mr-2">启用</v-chip>
-            <v-chip v-else size="x-small" color="grey" variant="tonal" class="mr-2">禁用</v-chip>
-            <v-icon size="small">{{ push._collapsed?'mdi-chevron-down':'mdi-chevron-up' }}</v-icon>
+          <v-card-title class="d-flex align-center py-3" style="background:rgb(var(--v-theme-surface-variant));">
+            <v-icon size="20" class="mr-2">mdi-bell</v-icon><span class="text-subtitle-1 font-weight-bold cursor-pointer flex-1-1" @click="push._collapsed=!push._collapsed">{{ push.name||'未命名' }}</span>
+            <v-switch :model-value="push.enabled!==false" label="启用" color="success" hide-details density="compact" class="mr-3" @click.stop @update:model-value="v=>updatePush(push.id,'enabled',v)"/>
+            <v-icon size="small" class="cursor-pointer" @click="push._collapsed=!push._collapsed">{{ push._collapsed?'mdi-chevron-down':'mdi-chevron-up' }}</v-icon>
           </v-card-title>
           <v-expand-transition>
             <v-card-text v-if="!push._collapsed" style="border-top:1px solid rgb(var(--v-theme-surface-variant));">
               <v-row dense class="mb-2">
-                <v-col cols="12" sm="4"><v-text-field label="推送名称" :model-value="push.name" hide-details @update:model-value="v=>updatePush(push.id,'name',v)"/></v-col>
-                <v-col cols="12" sm="4"><v-select label="模板选择" :items="tplSelectItems" :model-value="push.event_template?.__tplId||''" hide-details clearable @update:model-value="v=>selectTemplate(push.id,v)"/></v-col>
-                <v-col cols="12" sm="4"><v-switch :model-value="push.enabled!==false" label="启用" color="success" hide-details density="compact" @update:model-value="v=>updatePush(push.id,'enabled',v)"/></v-col>
+                <v-col cols="12" sm="6"><v-text-field label="推送名称" :model-value="push.name" hide-details @update:model-value="v=>updatePush(push.id,'name',v)"/></v-col>
+                <v-col cols="12" sm="6"><v-select label="模板选择" :items="tplSelectItems" :model-value="push.event_template?.__tplId||''" hide-details clearable @update:model-value="v=>selectTemplate(push.id,v)"/></v-col>
               </v-row>
-              <v-row dense class="mb-3">
+              <v-row v-if="!push.event_template?.__tplId" dense class="mb-3">
                 <v-col cols="12" sm="6"><v-text-field label="标题" :model-value="push.title" hide-details @update:model-value="v=>updatePush(push.id,'title',v)"/></v-col>
                 <v-col cols="12" sm="6"><v-text-field label="固定内容" :model-value="push.content" hide-details @update:model-value="v=>updatePush(push.id,'content',v)"/></v-col>
               </v-row>
