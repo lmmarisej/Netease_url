@@ -45,11 +45,15 @@
                     <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('player-bar').style.display='none';document.getElementById('audio-player').pause();">✕ 关闭</button>
                 </div>
 
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
                     <div>
                         <span class="text-muted" id="dir-path">📂 downloads/</span>
                     </div>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <label class="toggle-switch me-1"><input type="checkbox" id="audio-only-toggle" onchange="toggleFilter()"><span class="toggle-slider"></span></label>
+                        <span style="font-size:13px;white-space:nowrap;">仅音频</span>
+                        <input class="form-control form-control-sm" id="filter-ext" placeholder="扩展名过滤，如 yml" style="width:140px;" oninput="toggleFilter()">
+                        <label style="font-size:12px;white-space:nowrap;"><input type="checkbox" id="filter-ignore-case" onchange="toggleFilter()" checked> 忽略大小写</label>
                         <button class="btn btn-outline-primary btn-sm" onclick="loadFiles()">🔄 刷新</button>
                         <button class="btn btn-outline-danger btn-sm" onclick="deleteSelected()">🗑️ 批量删除</button>
                     </div>
@@ -127,14 +131,30 @@
             }, 'json').fail(function() { showToast('加载文件列表失败', 'error'); });
         }
 
+        function toggleFilter() { renderFiles(); }
+
         function renderFiles() {
             var $tbody = $('#file-list').empty();
-            $('#dir-path').text('📂 ' + (files.length > 0 ? 'downloads/ (' + files.length + ' 个文件)' : 'downloads/ (空)'));
-            if (files.length === 0) {
-                $tbody.html('<tr><td colspan="5" class="text-center text-muted py-4">暂无文件</td></tr>');
+            var audioOnly = $('#audio-only-toggle').prop('checked');
+            var extFilter = $('#filter-ext').val().trim();
+            var ignoreCase = $('#filter-ignore-case').prop('checked');
+
+            var filtered = files;
+            if (audioOnly) {
+                filtered = filtered.filter(function(f) { return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name); });
+            }
+            if (extFilter) {
+                var pattern = extFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                var regex = new RegExp('\\.' + pattern + '$', ignoreCase ? 'i' : '');
+                filtered = filtered.filter(function(f) { return regex.test(f.name); });
+            }
+
+            $('#dir-path').text('📂 ' + (files.length > 0 ? 'downloads/ (' + filtered.length + '/' + files.length + ' 个文件)' : 'downloads/ (空)'));
+            if (filtered.length === 0) {
+                $tbody.html('<tr><td colspan="5" class="text-center text-muted py-4">暂无匹配文件</td></tr>');
                 return;
             }
-            files.forEach(function(f) {
+            filtered.forEach(function(f) {
                 var isAudio = /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name);
                 var row = $('<tr></tr>');
                 row.append('<td><input type="checkbox" class="file-check" value="' + f.name + '"></td>');
