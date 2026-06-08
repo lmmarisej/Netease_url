@@ -28,15 +28,15 @@
       <v-window-item value="playlist">
         <v-card class="mb-4" variant="flat" color="surface-variant"><v-card-text class="d-flex align-center ga-3 py-3"><v-text-field v-model="playlistInput" hide-details placeholder="输入歌单ID或链接" style="max-width:400px;" @keydown.enter="doPlaylist"><template #prepend-inner><v-icon size="18">mdi-playlist-music</v-icon></template></v-text-field><v-btn color="warning" :loading="playlistLoading" @click="doPlaylist">解析歌单</v-btn></v-card-text></v-card>
         <div v-if="playlistHistory.length" class="mb-3"><div class="text-caption text-medium-emphasis mb-1">歌单历史</div><div class="d-flex flex-wrap ga-1"><v-chip v-for="(h,i) in playlistHistory" :key="i" size="small" variant="tonal" color="warning" closable @click="playlistInput=h.id;doPlaylist()" @click:close="removeHistory('playlist',i)">{{ h.name||h.id }}</v-chip></div></div>
-        <v-card v-if="playlistHeader" class="mb-4"><v-card-item><div class="d-flex ga-4 align-center"><v-img :src="playlistHeader.coverImgUrl||''" max-width="80" aspect-ratio="1" cover class="rounded-lg flex-shrink-0"/><div><div class="text-h6 font-weight-bold">{{ playlistHeader.name }}</div><div class="text-caption text-medium-emphasis">by {{ playlistHeader.creator||'' }} · {{ playlistHeader.trackCount||0 }} 首歌</div><div class="text-caption text-medium-emphasis mt-1">{{ (playlistHeader.description||'').substring(0,100) }}</div></div></div></v-card-item></v-card>
-        <div v-if="playlistTracks.length" class="d-flex align-center ga-2 mb-2 flex-wrap"><v-btn size="x-small" variant="tonal" @click="batchSelectAll('playlist')">全选</v-btn><v-btn size="x-small" variant="tonal" @click="batchInvert('playlist')">反选</v-btn><v-text-field v-model="playlistFilter" hide-details placeholder="关键词筛选" style="max-width:140px;"/><v-btn size="x-small" color="warning" @click="batchDownload('playlist')" :disabled="!getCheckedCount('playlist')">批量下载 ({{ getCheckedCount('playlist') }})</v-btn></div>
+        <v-card v-if="playlistHeader" class="mb-4"><v-card-item><div class="d-flex ga-4 align-center"><img :src="playlistHeader.coverImgUrl||''" referrerpolicy="no-referrer" style="width:80px;height:80px;object-fit:cover;border-radius:8px;flex-shrink:0" @error="e=>e.target.style.display='none'"/><div><div class="text-h6 font-weight-bold">{{ playlistHeader.name }}</div><div class="text-caption text-medium-emphasis">by {{ playlistHeader.creator||'' }} · {{ playlistHeader.trackCount||0 }} 首歌</div><div class="text-caption text-medium-emphasis mt-1">{{ (playlistHeader.description||'').substring(0,100) }}</div></div></div></v-card-item></v-card>
+        <div v-if="playlistTracks.length" class="d-flex align-center ga-2 mb-2 flex-wrap"><v-btn size="small" variant="tonal" @click="batchSelectAll('playlist')">全选</v-btn><v-btn size="small" variant="tonal" @click="batchInvert('playlist')">反选</v-btn><v-text-field v-model="playlistFilter" hide-details placeholder="筛选" density="compact" style="max-width:90px;font-size:0.75rem"/><v-btn size="small" color="warning" @click="batchDownload('playlist')" :disabled="!getCheckedCount('playlist')">批量下载 ({{ getCheckedCount('playlist') }})</v-btn></div>
         <div v-if="playlistTracks.length"><div v-for="track in filteredPlaylistTracks" :key="track.id" class="track-item d-flex align-center ga-3 pa-3 border-b"><v-checkbox v-model="playlistChecked" :value="track.id" hide-details density="compact" class="flex-shrink-0"/><span class="text-caption text-medium-emphasis flex-shrink-0" style="width:28px;">{{ track._idx }}</span><div class="flex-1-1" style="min-width:0;"><div class="text-body-2 font-weight-bold text-truncate">{{ track.name }}</div><div class="text-caption text-medium-emphasis text-truncate">{{ track.artists||'' }} · {{ track.album||'' }}</div></div><div class="d-flex ga-1 flex-shrink-0"><v-btn size="x-small" variant="tonal" color="primary" @click="showDetail(track.id)">详情</v-btn><v-btn size="x-small" color="success" @click="openDownloadModal(track.id,track.name)">下载</v-btn></div></div></div>
       </v-window-item>
       <v-window-item value="album">
         <v-card class="mb-4" variant="flat" color="surface-variant"><v-card-text class="d-flex align-center ga-3 py-3"><v-text-field v-model="albumInput" hide-details placeholder="输入专辑ID或链接" style="max-width:400px;" @keydown.enter="doAlbum"><template #prepend-inner><v-icon size="18">mdi-album</v-icon></template></v-text-field><v-btn color="info" :loading="albumLoading" @click="doAlbum">解析专辑</v-btn></v-card-text></v-card>
         <div v-if="albumHistory.length" class="mb-3"><div class="text-caption text-medium-emphasis mb-1">专辑历史</div><div class="d-flex flex-wrap ga-1"><v-chip v-for="(h,i) in albumHistory" :key="i" size="small" variant="tonal" color="info" closable @click="albumInput=h.id;doAlbum()" @click:close="removeHistory('album',i)">{{ h.name||h.id }}</v-chip></div></div>
-        <v-card v-if="albumHeader" class="mb-4"><v-card-item><div class="d-flex ga-4 align-center"><v-img :src="albumHeader.coverImgUrl||''" max-width="80" aspect-ratio="1" cover class="rounded-lg flex-shrink-0"/><div><div class="text-h6 font-weight-bold">{{ albumHeader.name }}</div><div class="text-caption text-medium-emphasis">{{ albumHeader.artist||'' }} · {{ (albumHeader.songs||[]).length }} 首歌</div></div></div></v-card-item></v-card>
-        <div v-if="albumTracks.length" class="d-flex align-center ga-2 mb-2 flex-wrap"><v-btn size="x-small" variant="tonal" @click="batchSelectAll('album')">全选</v-btn><v-btn size="x-small" variant="tonal" @click="batchInvert('album')">反选</v-btn><v-text-field v-model="albumFilter" hide-details placeholder="关键词筛选" style="max-width:140px;"/><v-btn size="x-small" color="warning" @click="batchDownload('album')" :disabled="!getCheckedCount('album')">批量下载 ({{ getCheckedCount('album') }})</v-btn></div>
+        <v-card v-if="albumHeader" class="mb-4"><v-card-item><div class="d-flex ga-4 align-center"><img :src="albumHeader.coverImgUrl||''" referrerpolicy="no-referrer" style="width:80px;height:80px;object-fit:cover;border-radius:8px;flex-shrink:0" @error="e=>e.target.style.display='none'"/><div><div class="text-h6 font-weight-bold">{{ albumHeader.name }}</div><div class="text-caption text-medium-emphasis">{{ albumHeader.artist||'' }} · {{ (albumHeader.songs||[]).length }} 首歌</div></div></div></v-card-item></v-card>
+        <div v-if="albumTracks.length" class="d-flex align-center ga-2 mb-2 flex-wrap"><v-btn size="small" variant="tonal" @click="batchSelectAll('album')">全选</v-btn><v-btn size="small" variant="tonal" @click="batchInvert('album')">反选</v-btn><v-text-field v-model="albumFilter" hide-details placeholder="筛选" density="compact" style="max-width:90px;font-size:0.75rem"/><v-btn size="small" color="warning" @click="batchDownload('album')" :disabled="!getCheckedCount('album')">批量下载 ({{ getCheckedCount('album') }})</v-btn></div>
         <div v-if="albumTracks.length"><div v-for="track in filteredAlbumTracks" :key="track.id" class="track-item d-flex align-center ga-3 pa-3 border-b"><v-checkbox v-model="albumChecked" :value="track.id" hide-details density="compact" class="flex-shrink-0"/><span class="text-caption text-medium-emphasis flex-shrink-0" style="width:28px;">{{ track._idx }}</span><div class="flex-1-1" style="min-width:0;"><div class="text-body-2 font-weight-bold text-truncate">{{ track.name }}</div><div class="text-caption text-medium-emphasis text-truncate">{{ track.artists||'' }} · {{ track.album||'' }}</div></div><div class="d-flex ga-1 flex-shrink-0"><v-btn size="x-small" variant="tonal" color="primary" @click="showDetail(track.id)">详情</v-btn><v-btn size="x-small" color="success" @click="openDownloadModal(track.id,track.name)">下载</v-btn></div></div></div>
       </v-window-item>
       <v-window-item value="download">
@@ -86,8 +86,8 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
-import { searchMusic, getPlaylist, getAlbum, getSongInfo, downloadMusic } from '@/api/index.js'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { searchMusic, getPlaylist, getAlbum, getSongInfo, downloadMusic, getSettings } from '@/api/index.js'
 
 const activeTab = ref('search')
 
@@ -136,12 +136,13 @@ async function doPlaylist() {
   let pid = playlistInput.value.trim()
   if (!pid) return window.__snackbar?.('请输入歌单ID', 'warning')
   const m = pid.match(/playlist\?id=(\d+)/); if (m) pid = m[1]
-  saveHistory('playlist', { id: pid, name: pid }); playlistHistory.value = loadHistory('playlist')
+  saveHistory('playlist', { id: pid, name: '' }); playlistHistory.value = loadHistory('playlist')
   playlistLoading.value = true
   try {
     const r = await getPlaylist({ id: pid })
     if (r?.status === 200 && r.data?.playlist) {
       const pl = r.data.playlist; playlistHeader.value = pl
+      saveHistory('playlist', { id: pid, name: pl.name || pid }); playlistHistory.value = loadHistory('playlist')
       playlistTracks.value = (pl.tracks || []).map((s, i) => ({ ...s, _idx: i + 1 }))
       playlistChecked.value = []; playlistFilter.value = ''
     } else { playlistHeader.value = null; playlistTracks.value = []; window.__snackbar?.('歌单解析失败', 'error') }
@@ -318,6 +319,15 @@ async function batchDownload(type) {
 }
 
 watch(() => detailDialog.value, (val) => { if (!val && apInstance) { apInstance.destroy(); apInstance = null } })
+
+onMounted(async () => {
+  try {
+    const r = await getSettings()
+    if (r?.status === 200 && r.data?.download_default_quality) {
+      currentQuality.value = r.data.download_default_quality
+    }
+  } catch (e) { /* ignore */ }
+})
 </script>
 
 <style scoped>

@@ -1233,6 +1233,7 @@ def get_settings():
             'downloads_dir': config.downloads_dir,
             'download_save_local': config.download_save_local,
             'download_browser': config.download_browser,
+            'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
         }, "获取配置成功")
     except Exception as e:
         return APIResponse.error(f"获取配置失败: {str(e)}", 500)
@@ -1250,6 +1251,8 @@ def save_settings():
             config.download_save_local = str(data['download_save_local']).lower() in ('true', '1', 'yes')
         if 'download_browser' in data:
             config.download_browser = str(data['download_browser']).lower() in ('true', '1', 'yes')
+        if 'download_default_quality' in data:
+            config.download_default_quality = data['download_default_quality']
 
         # 保存到 settings.json
         settings_path = Path(SETTINGS_CONFIG_FILE)
@@ -1260,6 +1263,7 @@ def save_settings():
         current['downloads_dir'] = config.downloads_dir
         current['download_save_local'] = config.download_save_local
         current['download_browser'] = config.download_browser
+        current['download_default_quality'] = getattr(config, 'download_default_quality', 'lossless')
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(current, f, ensure_ascii=False, indent=2)
 
@@ -1273,6 +1277,7 @@ def save_settings():
             'downloads_dir': config.downloads_dir,
             'download_save_local': config.download_save_local,
             'download_browser': config.download_browser,
+            'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
         }, "配置保存成功")
     except Exception as e:
         api_service.logger.error(f"保存配置异常: {e}")
