@@ -71,7 +71,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { getFileList, deleteFiles, readFile, saveFile } from '@/api/index.js'
 const files=ref([]),selectedFiles=ref([]),loading=ref(false),audioOnly=ref(false),extFilter=ref(''),ignoreCase=ref(true),saving=ref(false),deleting=ref(false)
 const playerFilename=ref(''),playerUrl=ref(''),audioPlayer=ref(null)
@@ -84,7 +84,7 @@ function formatSize(b){return b?(b/1048576).toFixed(2)+' MB':'0.00 MB'}
 function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}
 function isTextFile(n){return !isAudio(n)&&!/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(n)}
 async function loadFiles(){loading.value=true;try{const r=await getFileList();if(r?.status===200)files.value=r.data?.files||[]}catch(e){window.__snackbar?.('加载失败','error')}finally{loading.value=false}}
-function playAudio(fn){playerFilename.value=fn;playerUrl.value='/api/files/stream/'+encodeURIComponent(fn)}
+function playAudio(fn){playerFilename.value=fn;playerUrl.value='/api/files/stream/'+encodeURIComponent(fn);nextTick(()=>{if(audioPlayer.value){audioPlayer.value.load();audioPlayer.value.play().catch(()=>{})}})}
 function stopPlayer(){if(audioPlayer.value){audioPlayer.value.pause();audioPlayer.value.src=''}playerFilename.value=''}
 function downloadFile(fn){window.open('/api/files/stream/'+encodeURIComponent(fn)+'?download=1','_blank')}
 function deleteFile(fn){deleteTargets.value=[fn];confirmDelete.value=true}
