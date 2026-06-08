@@ -8,12 +8,13 @@
 """
 
 import os
+import re
 import time
 import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from datetime import datetime
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -252,12 +253,16 @@ class PlaylistSyncService:
             self.logger.info(f"歌单名称: {playlist_name}")
             self.logger.info(f"歌曲总数: {len(tracks)}")
             
-            # 获取已存在的歌曲列表
+            # 获取已存在的歌曲列表（同步历史 + 本地文件扫描）
             existing_songs = self._get_existing_songs()
+            local_stems = self._get_local_file_stems()
+            self.logger.info(f"本地已有音频文件: {len(local_stems)} 个")
             
             # 下载新歌曲
             synced_count = 0
             failed_count = 0
+            skipped_by_history = 0
+            skipped_by_local = 0
             
             for i, track in enumerate(tracks, 1):
                 try:
@@ -265,9 +270,18 @@ class PlaylistSyncService:
                     song_name = track.get('name', '未知歌曲')
                     artists = track.get('artists', '未知艺术家')
                     
-                    # 检查是否已存在
+                    # 检查同步历史
                     if song_id in existing_songs:
-                        self.logger.debug(f"[{i}/{len(tracks)}] 跳过已存在: {song_name} - {artists}")
+                        self.logger.debug(f"[{i}/{len(tracks)}] 跳过(历史): {song_name} - {artists}")
+                        skipped_by_history += 1
+                        continue
+                    
+                    # 检查本地是否已有文件（差集比对，无需 API 调用）
+                    expected_stem = self._build_expected_stem(artists, song_name)
+                    if expected_stem in local_stems:
+                        self.logger.info(f"[{i}/{len(tracks)}] 跳过(本地已有): {song_name} - {artists}")
+                        existing_songs.add(song_id)  # 同步到历史记录
+                        skipped_by_local += 1
                         continue
                     
                     # 下载歌曲
@@ -301,7 +315,7 @@ class PlaylistSyncService:
                     self.logger.error(f"下载歌曲失败: {e}")
                     continue
             
-            self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 失败 {failed_count} 首")
+            self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 跳过(历史) {skipped_by_history} 首, 跳过(本地) {skipped_by_local} 首, 失败 {failed_count} 首")
 
             fire_event(EventType.SYNC_PLAYLIST_COMPLETED, {
                 'playlist_id': playlist_id,
@@ -331,7 +345,7 @@ class PlaylistSyncService:
             }
     
     def _get_existing_songs(self) -> set:
-        """获取已存在的歌曲ID集合（通过文件名判断）"""
+        """获取已存在的歌曲ID集合（通过同步历史记录判断）"""
         existing_songs = set()
         
         try:
@@ -346,6 +360,63 @@ class PlaylistSyncService:
             self.logger.warning(f"读取同步历史失败: {e}")
         
         return existing_songs
+    
+    def _sanitize_for_match(self, name: str) -> str:
+        """清理文件名用于匹配（与 MusicDownloader._sanitize_filename 逻辑一致）
+        
+        Args:
+            name: 原始名称
+            
+        Returns:
+            清理后的小写名称
+        """
+        illegal_chars = r'[<>:"/\\|?*]'
+        name = re.sub(illegal_chars, '_', name)
+        name = name.strip(' .')
+        if len(name) > 200:
+            name = name[:200]
+        return name.lower() or "unknown"
+    
+    def _get_local_file_stems(self) -> Set[str]:
+        """扫描下载目录，获取所有本地文件的文件名主干（不含扩展名）
+        
+        一次性扫描整个 downloads 目录，返回小写文件名主干的集合，
+        用于与歌单歌曲进行批量差集比对，避免逐曲目的文件系统检查。
+        
+        Returns:
+            小写文件名主干集合，如 {"周杰伦 - 晴天", "林俊杰 - 江南"}
+        """
+        stems = set()
+        try:
+            if not self.downloads_path.exists():
+                return stems
+            
+            for entry in self.downloads_path.iterdir():
+                if entry.is_file():
+                    # 只收集音频文件，跳过 sync_history.json 等非音频文件
+                    suffix = entry.suffix.lower()
+                    if suffix in ('.mp3', '.flac', '.m4a', '.wav', '.ogg', '.wma'):
+                        stems.add(entry.stem.lower())
+        except Exception as e:
+            self.logger.warning(f"扫描本地文件失败: {e}")
+        
+        return stems
+    
+    def _build_expected_stem(self, artists: str, song_name: str) -> str:
+        """根据艺术家和歌曲名构建预期的文件名主干
+        
+        与 MusicDownloader.download_music_file 中的文件名生成逻辑保持一致：
+        {艺术家} - {歌曲名}，经过相同的 sanitize 处理。
+        
+        Args:
+            artists: 艺术家字符串（如 "周杰伦" 或 "A/B"）
+            song_name: 歌曲名称
+            
+        Returns:
+            预期的小写文件名主干，如 "周杰伦 - 晴天"
+        """
+        raw = f"{artists} - {song_name}"
+        return self._sanitize_for_match(raw)
     
     def _save_sync_history(self, sync_results: List[Dict[str, Any]]):
         """保存同步历史记录"""
