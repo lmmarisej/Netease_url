@@ -116,9 +116,10 @@ class MusicAPIService:
         self.netease_api = NeteaseAPI()
         self.downloader = MusicDownloader()
         
-        # 创建下载目录
-        self.downloads_path = Path(config.downloads_dir)
-        self.downloads_path.mkdir(exist_ok=True)
+        # 创建下载目录（确保使用绝对路径）
+        self.downloads_path = Path(config.downloads_dir).resolve()
+        config.downloads_dir = str(self.downloads_path)
+        self.downloads_path.mkdir(parents=True, exist_ok=True)
         
         # 初始化 sync_service 为 None
         self.sync_service = None
@@ -1424,8 +1425,8 @@ def api_files_delete():
 def api_files_stream(filename):
     """流式传输文件（用于音频播放和下载）"""
     try:
-        file_path = Path(config.downloads_dir) / filename
-        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+        file_path = (Path(config.downloads_dir) / filename).resolve()
+        if not file_path.is_relative_to(Path(config.downloads_dir).resolve()):
             return APIResponse.error("非法文件路径", 403)
         if not file_path.exists():
             return APIResponse.error("文件不存在", 404)

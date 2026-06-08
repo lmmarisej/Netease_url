@@ -9,7 +9,7 @@
         <v-card-text class="d-flex align-center ga-3 py-2">
           <v-icon class="flex-shrink-0">mdi-music-note</v-icon>
           <strong class="text-body-2 text-truncate" style="max-width:280px;">{{ playerFilename }}</strong>
-          <audio ref="audioPlayer" controls style="flex:1;min-width:0;" :src="playerUrl" />
+          <audio ref="audioPlayer" controls autoplay style="flex:1;min-width:0;" :src="playerUrl" />
           <v-btn icon="mdi-close" size="small" variant="text" @click="stopPlayer" />
         </v-card-text>
       </v-card>
@@ -43,7 +43,7 @@
         <template #item.modified="{ item }"><span class="text-caption text-medium-emphasis">{{ item.modified || '--' }}</span></template>
         <template #item.actions="{ item }">
           <div class="d-flex ga-1">
-            <v-btn v-if="isAudio(item.name)" size="x-small" variant="tonal" color="primary" icon="mdi-play" @click="playAudio(item.name)" />
+            <v-btn v-if="isAudio(item.name)" size="x-small" variant="tonal" color="primary" icon="mdi-play" @click.stop="playAudio(item.name)" />
             <v-btn v-if="isTextFile(item.name)" size="x-small" variant="tonal" color="info" icon="mdi-pencil" @click="editFile(item.name)" />
             <v-btn size="x-small" variant="tonal" icon="mdi-download" @click="downloadFile(item.name)" />
             <v-btn size="x-small" variant="tonal" color="error" icon="mdi-delete" @click="deleteFile(item.name)" />
@@ -84,7 +84,7 @@ function formatSize(b){return b?(b/1048576).toFixed(2)+' MB':'0.00 MB'}
 function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}
 function isTextFile(n){return !isAudio(n)&&!/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(n)}
 async function loadFiles(){loading.value=true;try{const r=await getFileList();if(r?.status===200)files.value=r.data?.files||[]}catch(e){window.__snackbar?.('加载失败','error')}finally{loading.value=false}}
-function playAudio(fn){playerFilename.value=fn;playerUrl.value='/api/files/stream/'+encodeURIComponent(fn);nextTick(()=>{if(audioPlayer.value){audioPlayer.value.load();audioPlayer.value.play().catch(()=>{})}})}
+async function playAudio(fn){playerFilename.value=fn;playerUrl.value='/api/files/stream/'+encodeURIComponent(fn);await nextTick();await nextTick();if(audioPlayer.value){audioPlayer.value.load();audioPlayer.value.play().catch(()=>{})}}
 function stopPlayer(){if(audioPlayer.value){audioPlayer.value.pause();audioPlayer.value.src=''}playerFilename.value=''}
 function downloadFile(fn){window.open('/api/files/stream/'+encodeURIComponent(fn)+'?download=1','_blank')}
 function deleteFile(fn){deleteTargets.value=[fn];confirmDelete.value=true}
