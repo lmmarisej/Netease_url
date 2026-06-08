@@ -55,6 +55,16 @@
       </div>
     </v-main>
 
+    <!-- 全局播放器底栏（v-footer + v-show，始终在 DOM 中让 Vuetify 正确计算布局） -->
+    <v-footer v-show="playerFilename" app height="56" class="pa-0" style="z-index:100;border-top:1px solid rgb(var(--v-theme-surface-variant))">
+      <div class="d-flex align-center ga-3 px-4 w-100" style="height:56px;background:rgb(var(--v-theme-surface))">
+        <v-icon class="flex-shrink-0" color="primary">mdi-music-note</v-icon>
+        <strong class="text-body-2 text-truncate" style="max-width:240px;">{{ playerFilename }}</strong>
+        <audio ref="audioPlayer" controls autoplay style="flex:1;min-width:0;height:32px" :src="playerUrl" />
+        <v-btn icon="mdi-close" size="small" variant="text" @click="stopPlayer" />
+      </div>
+    </v-footer>
+
     <!-- 全局通知 -->
     <v-snackbar
       v-model="snackbar.show"
@@ -73,7 +83,7 @@
 </template>
 
 <script setup>
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, nextTick } from 'vue'
 import { useTheme } from 'vuetify'
 
 const theme = useTheme()
@@ -101,6 +111,32 @@ function showSnackbar(text, color = 'info') {
 }
 if (typeof window !== 'undefined') {
   window.__snackbar = showSnackbar
+}
+
+// 全局播放器
+const playerFilename = ref('')
+const playerUrl = ref('')
+const audioPlayer = ref(null)
+
+async function playAudio(fn) {
+  playerFilename.value = fn
+  playerUrl.value = '/api/files/stream/' + encodeURIComponent(fn)
+  await nextTick()
+  await nextTick()
+  if (audioPlayer.value) {
+    audioPlayer.value.load()
+    audioPlayer.value.play().catch(() => {})
+  }
+}
+function stopPlayer() {
+  if (audioPlayer.value) {
+    audioPlayer.value.pause()
+    audioPlayer.value.src = ''
+  }
+  playerFilename.value = ''
+}
+if (typeof window !== 'undefined') {
+  window.__playAudio = playAudio
 }
 </script>
 

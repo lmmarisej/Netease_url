@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createVuetify } from 'vuetify'
+import { zhHans } from 'vuetify/locale'
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
 import * as components from 'vuetify/components'
@@ -9,6 +10,10 @@ import App from './App.vue'
 import router from './router'
 
 const vuetify = createVuetify({
+  locale: {
+    locale: 'zhHans',
+    messages: { zhHans },
+  },
   components,
   directives,
   defaults: {
