@@ -31,33 +31,7 @@ docker-compose up -d
 
 ### 页面截图
 
-#### 🏠 业务操作 — 搜索 / 歌单解析 / 专辑解析 / 下载
-
-![业务操作](screenshots/index.png)
-
-#### 📁 文件管理 — 文件浏览 / 音频播放
-
-![文件管理](screenshots/files.png)
-
-#### ⚙️ 配置 — 同步 / 下载 / Cookie 管理
-
-![配置](screenshots/config.png)
-
-#### 📨 消息推送 — 推送配置 / 事件关联 / 模板管理
-
-![消息推送](screenshots/magicpush.png)
-
-#### 📊 任务监控 — 下载进度跟踪
-
-![任务监控](screenshots/tasks.png)
-
-#### 📖 API 接口文档 — 折叠式端点说明
-
-![API 文档](screenshots/api-docs.png)
-
-#### 📋 运行日志 — 实时查看 / 文件切换
-
-![运行日志](screenshots/logs.png)
+![img.png](img.png)
 
 ## 🔌 API 端点
 
