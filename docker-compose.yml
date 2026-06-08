@@ -1,5 +1,6 @@
 services:
   netease-music-toolbox:
+    image: lmmarisej-netease_url
     build:
       context: .
       dockerfile: Dockerfile
