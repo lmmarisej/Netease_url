@@ -432,24 +432,6 @@ def handle_internal_error(e):
     return APIResponse.error("服务器内部错误", 500)
 
 
-@app.route('/')
-def index() -> str:
-    """首页路由"""
-    return render_template('index.html')
-
-
-@app.route('/config')
-def config_page() -> str:
-    """配置页面路由"""
-    return render_template('config.html')
-
-
-@app.route('/api-docs')
-def api_docs_page() -> str:
-    """API 文档页面路由"""
-    return render_template('api-docs.html')
-
-
 @app.route('/api/api-docs', methods=['GET'])
 def api_docs_json():
     """API 文档 JSON 端点"""
@@ -464,12 +446,6 @@ def api_docs_json():
     except Exception as e:
         api_service.logger.error(f"获取API文档失败: {e}")
         return APIResponse.error(f"获取API文档失败: {str(e)}", 500)
-
-
-@app.route('/logs')
-def logs_page() -> str:
-    """日志查看页面路由"""
-    return render_template('logs.html')
 
 
 @app.route('/api/logs', methods=['GET'])
@@ -544,12 +520,6 @@ def api_logs_cleanup():
     except Exception as e:
         api_service.logger.error(f"清理日志失败: {e}")
         return APIResponse.error(f"清理日志失败: {str(e)}", 500)
-
-
-@app.route('/tasks')
-def tasks_page() -> str:
-    """任务监控页面路由"""
-    return render_template('tasks.html')
 
 
 @app.route('/api/tasks', methods=['GET'])
@@ -1226,7 +1196,7 @@ def save_cookie_config():
     """保存Cookie配置"""
     try:
         data = api_service._safe_get_request_data()
-        cookie_content = data.get('content', '').strip()
+        cookie_content = (data.get('cookie') or data.get('content') or '').strip()
 
         if not cookie_content:
             # 允许清空
@@ -1393,12 +1363,6 @@ def start_api_server():
 
 
 # ===== 文件管理 =====
-
-@app.route('/files')
-def files_page() -> str:
-    """文件管理页面"""
-    return render_template('files.html')
-
 
 @app.route('/api/files/list', methods=['GET'])
 def api_files_list():
