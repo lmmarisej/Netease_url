@@ -182,9 +182,29 @@ async function doDownload() {
   saveHistory('download', { id: musicId, name: downloadSongInfo.value || musicId }); downloadHistory.value = loadHistory('download')
   downloading.value = true
   try {
-    const r = await downloadMusic({ id: musicId, quality: currentQuality.value })
-    if (r?.status === 200) window.__snackbar?.('下载成功！', 'success')
-    else window.__snackbar?.(r?.message || '下载失败', 'error')
+    const response = await downloadMusic({ id: musicId, quality: currentQuality.value })
+    const blob = response.data
+    const ct = blob.type || ''
+    // 检测响应类型：JSON（仅保存本地）或二进制（浏览器下载）
+    if (ct.includes('application/json') || ct.includes('text/')) {
+      // JSON 响应：仅保存到本地模式
+      const text = await blob.text()
+      const data = JSON.parse(text)
+      window.__snackbar?.(data.message || '下载任务已开始', 'success')
+    } else {
+      // 二进制响应：触发浏览器下载
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const disposition = response.headers['content-disposition'] || ''
+      const fnMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+      a.href = url
+      a.download = fnMatch ? fnMatch[1].replace(/['"]/g, '') : (downloadSongInfo.value || musicId) + '.mp3'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      window.__snackbar?.('下载成功！', 'success')
+    }
   } catch (e) { window.__snackbar?.(e.message || '下载失败', 'error') }
   finally { downloading.value = false }
 }

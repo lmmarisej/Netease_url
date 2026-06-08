@@ -35,8 +35,10 @@ export function getAlbum(params) {
   return api.post('/api/album', params)
 }
 
-export function downloadMusic(params) {
-  return api.post('/api/download', params)
+export function downloadMusic(params, options = {}) {
+  // 对于二进制下载，使用原始 axios 实例避免拦截器提取 .data
+  const instance = axios.create({ baseURL: '/', timeout: 120000 })
+  return instance.post('/api/download', params, { responseType: 'blob', ...options })
 }
 
 // ==================== 同步配置 ====================
