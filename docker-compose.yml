@@ -1,19 +1,14 @@
 services:
-  netease-music-downloader:
+  netease-music-toolbox:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
     volumes:
-      # 下载目录：修改冒号前路径为你自己的下载路径
-      - /vol3/1000/音乐/网易云/Download:/app/downloads
-      # 持久化配置文件（settings.json, sync_config.json, cookie.txt）
+      - ./downloads:/app/downloads
       - ./config:/app/config
-      - ./config/cookie.txt:/app/cookie.txt
       - ./logs:/app/logs
     environment:
       - PORT=5000
-      # 其他配置已迁移至 config/settings.json
-      # 定时同步配置请在 Web 界面 http://localhost:5000/config 中设置
-      # Cookie 请写入 cookie.txt 文件
+    restart: unless-stopped
