@@ -934,7 +934,8 @@ def download_music_api():
             }
             
             # 生成安全文件名
-            safe_name = f"{music_info['name']} [{actual_quality}]"
+            quality_labels = {'standard':'标准','exhigh':'极高','lossless':'无损','hires':'Hi-Res','sky':'环绕声','jyeffect':'高清环绕','jymaster':'母带'}
+            safe_name = f"{music_info['name']} [{quality_labels.get(actual_quality, actual_quality)}]"
             safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
             filename = f"{safe_name}.{music_info['file_type']}"
             download_url = music_info['download_url']
@@ -1037,7 +1038,7 @@ def download_music_api():
                         local_f.close()
 
             resp = Response(stream_with_context(stream_proxy()), mimetype=f"audio/{music_info['file_type']}")
-            resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+            resp.headers['Content-Disposition'] = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename, safe='')}"
             resp.headers['X-Download-Filename'] = quote(filename, safe='')
             return resp
 

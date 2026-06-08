@@ -4,7 +4,7 @@
   "debug": false,
   "downloads_dir": "downloads",
   "download_save_local": true,
-  "download_browser": false,
+  "download_browser": true,
   "log_level": "INFO",
   "max_file_size": 524288000,
   "request_timeout": 30,
@@ -14,5 +14,6 @@
   "playlist_ids": [],
   "sync_quality": "lossless",
   "sync_interval": 3600,
-  "cron_expression": ""
+  "cron_expression": "",
+  "download_default_quality": "exhigh"
 }
