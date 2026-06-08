@@ -80,7 +80,7 @@ const theme = useTheme()
 const isDark = computed(() => theme.global.current.value.dark)
 
 const menuItems = [
-  { to: '/', icon: 'mdi-magnify', title: '业务操作' },
+  { to: '/', icon: 'mdi-magnify', title: '音乐搜索' },
   { to: '/files', icon: 'mdi-folder-multiple', title: '文件管理' },
   { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
   { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },

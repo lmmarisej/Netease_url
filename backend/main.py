@@ -1214,12 +1214,12 @@ def save_cookie_config():
             'has_content': bool(cookie_content),
         }, source='api')
 
-        # 验证保存结果
+        # 返回保存结果
         info = api_service.cookie_manager.get_cookie_info()
         return APIResponse.success({
             'info': info,
-            'saved': info['is_valid']
-        }, "Cookie配置保存成功" if info['is_valid'] else "Cookie已保存但可能不完整")
+            'saved': True
+        }, "Cookie配置保存成功")
     except Exception as e:
         api_service.logger.error(f"保存Cookie配置异常: {e}")
         return APIResponse.error(f"保存Cookie配置失败: {str(e)}", 500)

@@ -14,31 +14,13 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/song': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/search': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/playlist': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/album': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/download': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 120000
       },
       '/sync': {
         target: 'http://localhost:5000',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 120000
       },
       '/health': {
         target: 'http://localhost:5000',
