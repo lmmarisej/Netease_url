@@ -25,6 +25,7 @@ from music_api import playlist_detail, name_v1, url_v1, APIException
 from cookie_manager import CookieManager, CookieException
 from music_downloader import MusicDownloader, DownloadException
 from event_bus import event_bus, EventType, fire_event, create_event
+from lyrics_db import LyricsDB, save_lrc_file
 
 
 class PlaylistSyncConfig:
@@ -267,6 +268,8 @@ class PlaylistSyncService:
                     if song_id in existing_songs:
                         self.logger.debug(f"[{i}/{len(tracks)}] 跳过(历史): {song_name} - {artists}")
                         skipped_by_history += 1
+                        # 历史有记录说明之前下载过，也需补全歌词
+                        self._ensure_lyrics(song_id, song_name, artists, cookies)
                         continue
                     
                     # 检查本地是否已有文件（差集比对，无需 API 调用）
@@ -275,6 +278,8 @@ class PlaylistSyncService:
                         self.logger.info(f"[{i}/{len(tracks)}] 跳过(本地已有): {song_name} - {artists}")
                         existing_songs.add(song_id)  # 同步到历史记录
                         skipped_by_local += 1
+                        # 补全歌词（DB + .lrc）
+                        self._ensure_lyrics(song_id, song_name, artists, cookies, expected_stem)
                         continue
                     
                     # 下载歌曲
@@ -421,6 +426,63 @@ class PlaylistSyncService:
         """
         raw = f"{artists} - {song_name}"
         return self._sanitize_for_match(raw)
+    
+    def _ensure_lyrics(self, song_id, song_name, artists, cookies, safe_stem=''):
+        """确保歌词已保存（DB + .lrc），即使音频文件已存在
+
+        Args:
+            song_id: 歌曲 ID
+            song_name: 歌曲名
+            artists: 艺术家
+            cookies: 网易云 Cookie
+            safe_stem: 安全文件名主干（用于 .lrc 命名），为空则自动生成
+        """
+        try:
+            import json as _json
+            from music_api import lyric_v1
+            
+            # 检查 DB 是否已有
+            db = LyricsDB()
+            existing = db.get_lyric(song_id)
+            if existing:
+                self.logger.debug(f"歌词已存在于 DB: {song_name}")
+                # 仍检查 .lrc 文件
+                if not safe_stem:
+                    safe_stem = self._sanitize_for_match(f"{artists} - {song_name}")
+                lrc_path = Path(self.config.download_dir) / f"{safe_stem}.lrc"
+                if not lrc_path.exists():
+                    save_lrc_file(Path(self.config.download_dir), safe_stem,
+                                  existing.get('original_lyric', ''),
+                                  existing.get('translated_lyric', ''))
+                return
+            
+            # 从 API 获取歌词
+            lyric_result = lyric_v1(song_id, cookies)
+            if not lyric_result:
+                return
+            
+            original_lyric = lyric_result.get('lrc', {}).get('lyric', '')
+            translated_lyric = lyric_result.get('tlyric', {}).get('lyric', '')
+            
+            db.save_lyric(
+                song_id=song_id,
+                song_name=song_name,
+                artist=artists,
+                album='',
+                original_lyric=original_lyric,
+                translated_lyric=translated_lyric,
+                lyric_raw=_json.dumps(lyric_result, ensure_ascii=False),
+            )
+            
+            if not safe_stem:
+                safe_stem = self._sanitize_for_match(f"{artists} - {song_name}")
+            save_lrc_file(Path(self.config.download_dir), safe_stem,
+                          original_lyric, translated_lyric)
+            
+            self.logger.info(f"歌词已补全: {song_name} - {artists}")
+            
+        except Exception as e:
+            self.logger.warning(f"补全歌词失败 ({song_name}): {e}")
     
     def _save_sync_history(self, sync_results: List[Dict[str, Any]]):
         """保存同步历史记录"""
