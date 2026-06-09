@@ -195,11 +195,22 @@ async function syncNow() {
   syncingNow.value = true
   try {
     const r = await triggerSyncNow()
-    window.__snackbar?.(r?.message || '同步已启动', r?.success ? 'success' : 'warning')
+    if (r?.status === 200 && r.data) {
+      const d = r.data
+      if (d.errors && d.errors.length > 0) {
+        const errMsgs = d.errors.map(e => `歌单 ${e.playlist_id}: ${e.error}`).join('；')
+        window.__snackbar?.(`${d.message || '同步完成'}；错误: ${errMsgs}`, 'warning')
+      } else {
+        window.__snackbar?.(d.message || '同步已启动', 'success')
+      }
+    } else {
+      window.__snackbar?.(r?.message || '同步失败', 'error')
+    }
   } catch (e) {
     window.__snackbar?.('同步失败', 'error')
   } finally {
     syncingNow.value = false
+    await loadStatus()
   }
 }
 

@@ -1551,14 +1551,27 @@ def trigger_sync_now():
         if not sync_service:
             return APIResponse.error("同步服务未启用，请先在配置页保存同步配置", 400)
 
-        # 在后台线程执行同步
-        thread = Thread(target=sync_service.sync_all_playlists, daemon=True)
-        thread.start()
+        # 同步执行并返回结果（前端需要即时错误反馈）
+        results = sync_service.sync_all_playlists()
 
-        return APIResponse.success(
-            {'message': '同步任务已在后台启动'},
-            "同步任务已启动"
-        )
+        success_count = sum(1 for r in results if r.get('success'))
+        fail_count = len(results) - success_count
+        total_synced = sum(r.get('synced_count', 0) for r in results)
+
+        errors = []
+        for r in results:
+            if not r.get('success'):
+                errors.append({
+                    'playlist_id': r.get('playlist_id', ''),
+                    'error': r.get('error', '未知错误'),
+                })
+
+        return APIResponse.success({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'total_synced': total_synced,
+            'errors': errors,
+        }, f"同步完成: 成功 {success_count}/{len(results)}, 下载 {total_synced} 首" + (f", {fail_count} 个失败" if fail_count else ""))
         
     except Exception as e:
         api_service.logger.error(f"触发同步异常: {e}")
