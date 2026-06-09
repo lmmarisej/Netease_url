@@ -84,6 +84,16 @@
           </v-card-text>
         </v-card>
 
+        <v-card class="mb-4">
+          <v-card-text class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-subtitle-1 font-weight-bold">去除重复文件</div>
+              <span class="text-caption text-medium-emphasis">同步完成后计算 MD5，删除内容相同的重复文件</span>
+            </div>
+            <v-switch v-model="syncDedupFiles" color="warning" hide-details class="flex-shrink-0" />
+          </v-card-text>
+        </v-card>
+
         <div class="d-flex ga-3 mb-4">
           <v-btn color="primary" :loading="savingSync" prepend-icon="mdi-content-save" @click="saveConfig">保存同步配置</v-btn>
           <v-btn color="warning" :loading="syncingNow" prepend-icon="mdi-refresh" @click="syncNow">立即同步一次</v-btn>
@@ -108,6 +118,7 @@ const syncCron = ref('')
 const savingSync = ref(false)
 const syncingNow = ref(false)
 const syncFullDelete = ref(false)
+const syncDedupFiles = ref(false)
 const syncRunning = ref(false)
 const syncStatusText = ref('同步服务未启用')
 const syncExtra = ref('')
@@ -136,6 +147,7 @@ async function loadConfig() {
       syncQuality.value = c.sync_quality || 'lossless'
       syncInterval.value = c.sync_interval || 3600
       syncFullDelete.value = c.sync_full_delete || false
+      syncDedupFiles.value = c.sync_dedup_files || false
       if (c.cron_expression) {
         scheduleMode.value = 'cron'
         syncCron.value = c.cron_expression
@@ -194,6 +206,7 @@ async function saveConfig() {
       sync_interval: syncInterval.value,
       cron_expression: scheduleMode.value === 'cron' ? syncCron.value.trim() : '',
       sync_full_delete: syncFullDelete.value,
+      sync_dedup_files: syncDedupFiles.value,
     })
     window.__snackbar?.(r?.message || '已保存', 'success')
     await loadStatus()

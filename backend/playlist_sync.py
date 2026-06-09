@@ -40,7 +40,8 @@ class PlaylistSyncConfig:
         download_dir: str = "downloads",
         max_concurrent: int = 3,
         cookie_file: Optional[str] = None,
-        sync_full_delete: bool = False
+        sync_full_delete: bool = False,
+        sync_dedup_files: bool = False
     ):
         self.playlist_ids = playlist_ids
         self.quality = quality
@@ -198,6 +199,11 @@ class PlaylistSyncService:
         self.logger.info("="*60)
         self.logger.info(f"同步完成: 成功 {success_count}/{len(sync_results)}, 共下载 {total_synced} 首歌曲")
         self.logger.info("="*60)
+        
+        # MD5 去重模式
+        dedup_count = 0
+        if getattr(self.config, 'sync_dedup_files', False):
+            dedup_count = self._dedup_files_by_md5()
         
         # 完全同步模式：在所有歌单同步完成后，统一删除本地多余文件
         deleted_count = 0
@@ -511,6 +517,55 @@ class PlaylistSyncService:
         except Exception as e:
             self.logger.warning(f"补全歌词失败 ({song_name}): {e}")
     
+    def _dedup_files_by_md5(self) -> int:
+        """MD5 去重：扫描下载目录，相同 MD5 的文件只保留一份"""
+        import hashlib
+        deleted = 0
+        try:
+            download_dir = Path(self.config.download_dir)
+            if not download_dir.exists():
+                return 0
+            
+            # 按 MD5 分组
+            md5_map = {}  # md5 -> list of file paths
+            audio_exts = {'.mp3', '.flac', '.m4a', '.wav', '.ogg'}
+            for f in download_dir.iterdir():
+                if not f.is_file() or f.suffix.lower() not in audio_exts:
+                    continue
+                try:
+                    h = hashlib.md5()
+                    with open(f, 'rb') as fh:
+                        for chunk in iter(lambda: fh.read(8192), b''):
+                            h.update(chunk)
+                    digest = h.hexdigest()
+                    md5_map.setdefault(digest, []).append(f)
+                except Exception as e:
+                    self.logger.warning(f"计算 MD5 失败 {f.name}: {e}")
+            
+            # 删除重复文件（保留每组第一个，其余删除）
+            for digest, files in md5_map.items():
+                if len(files) <= 1:
+                    continue
+                keeper = files[0]
+                for dup in files[1:]:
+                    try:
+                        dup.unlink()
+                        self.logger.info(f"MD5 去重 - 已删除重复文件: {dup.name} (保留 {keeper.name})")
+                        # 删除对应 .lrc
+                        lrc = dup.with_suffix('.lrc')
+                        if lrc.exists():
+                            lrc.unlink()
+                        deleted += 1
+                    except Exception as e:
+                        self.logger.warning(f"删除重复文件失败 {dup.name}: {e}")
+            
+            if deleted > 0:
+                self.logger.info(f"MD5 去重完成 - 共删除 {deleted} 个重复文件")
+        except Exception as e:
+            self.logger.error(f"MD5 去重异常: {e}")
+        
+        return deleted
+
     def _delete_extra_local_files_by_stems(self, remote_stems: set) -> int:
         """完全同步模式：删除本地存在但所有远程歌单中都不存在的音频及歌词文件
         

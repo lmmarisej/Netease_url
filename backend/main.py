@@ -79,6 +79,8 @@ class APIConfig:
     sync_interval: int = 3600
     cron_expression: str = None
     download_lyric_save_lrc: bool = True
+    sync_full_delete: bool = False
+    sync_dedup_files: bool = False
     
     def __post_init__(self):
         if self.playlist_ids is None:
@@ -166,7 +168,8 @@ class MusicAPIService:
                     cron_expression=self.config.cron_expression if self.config.cron_expression else None,
                     download_dir=str(_get_user_downloads_path()),
                     cookie_file=_get_user_cookie_path() if get_current_user() else None,
-                    sync_full_delete=getattr(self.config, 'sync_full_delete', False)
+                    sync_full_delete=getattr(self.config, 'sync_full_delete', False),
+                    sync_dedup_files=getattr(self.config, 'sync_dedup_files', False)
                 )
                 self.sync_service = init_sync_service(sync_config)
                 self.logger.info(f"定时同步服务已配置，歌单数量: {len(self.config.playlist_ids)}")
@@ -187,6 +190,7 @@ class MusicAPIService:
             self.config.sync_interval = int(new_config.get('sync_interval', 3600))
             self.config.cron_expression = new_config.get('cron_expression', '')
             self.config.sync_full_delete = new_config.get('sync_full_delete', False)
+            self.config.sync_dedup_files = new_config.get('sync_dedup_files', False)
             
             # 保存到JSON文件
             save_sync_config_to_file({
@@ -195,7 +199,8 @@ class MusicAPIService:
                 'sync_quality': self.config.sync_quality,
                 'sync_interval': self.config.sync_interval,
                 'cron_expression': self.config.cron_expression,
-                'sync_full_delete': self.config.sync_full_delete
+                'sync_full_delete': self.config.sync_full_delete,
+                'sync_dedup_files': self.config.sync_dedup_files
             })
             
             # 重新初始化同步服务
@@ -541,9 +546,14 @@ def public_lyrics_query():
 
 
 def _lyric_json_response(lrc: str, tlrc: str):
-    """构建扁平 JSON 响应，保持 Unicode 不转义"""
+    """构建扁平 JSON 响应，保持 Unicode 不转义，毫秒保留两位"""
     import json as _json
-    body = _json.dumps({'lyric': lrc or '', 'tlyric': tlrc or ''}, ensure_ascii=False)
+    import re
+    def _fix_ts(text):
+        if not text:
+            return ''
+        return re.sub(r'(\[\d{2}:\d{2}\.\d{2})\d\]', r'\1]', text)
+    body = _json.dumps({'lyric': _fix_ts(lrc), 'tlyric': _fix_ts(tlrc)}, ensure_ascii=False)
     return Response(body, mimetype='application/json')
 
 
@@ -1512,7 +1522,8 @@ def get_sync_config():
                 'sync_quality': config.sync_quality,
                 'sync_interval': config.sync_interval,
                 'cron_expression': config.cron_expression or '',
-                'sync_full_delete': getattr(config, 'sync_full_delete', False)
+                'sync_full_delete': getattr(config, 'sync_full_delete', False),
+                'sync_dedup_files': getattr(config, 'sync_dedup_files', False)
             }
         return APIResponse.success(config_data, "获取同步配置成功")
     except Exception as e:
