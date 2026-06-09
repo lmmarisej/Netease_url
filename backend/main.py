@@ -1341,14 +1341,21 @@ def trigger_sync_now():
     """立即执行歌单同步"""
     try:
         sync_service = get_sync_service()
-        
+
+        # 如果服务未初始化但用户配置已启用，从用户配置初始化
         if not sync_service:
-            return APIResponse.error("定时同步服务未启用", 400)
-        
+            file_config = load_sync_config_from_file()
+            if file_config.get('enable_sync') and file_config.get('playlist_ids'):
+                api_service.reload_sync_config(file_config)
+                sync_service = get_sync_service()
+
+        if not sync_service:
+            return APIResponse.error("同步服务未启用，请先在配置页保存同步配置", 400)
+
         # 在后台线程执行同步
         thread = Thread(target=sync_service.sync_all_playlists, daemon=True)
         thread.start()
-        
+
         return APIResponse.success(
             {'message': '同步任务已在后台启动'},
             "同步任务已启动"
