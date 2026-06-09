@@ -735,9 +735,6 @@ def api_logs():
     """日志内容 API——支持指定文件名，返回最近 1000 行（倒序）"""
     try:
         logs_dir = _PROJECT_ROOT / 'logs'
-        username = get_current_user()
-        if username:
-            logs_dir = _PROJECT_ROOT / 'logs' / username
         logs_dir.mkdir(parents=True, exist_ok=True)
 
         # 获取日志文件列表
@@ -788,9 +785,6 @@ def api_logs_cleanup():
     """清理日志文件——清空所有 .log 文件内容"""
     try:
         logs_dir = _PROJECT_ROOT / 'logs'
-        username = get_current_user()
-        if username:
-            logs_dir = _PROJECT_ROOT / 'logs' / username
         logs_dir.mkdir(parents=True, exist_ok=True)
 
         cleaned = []
