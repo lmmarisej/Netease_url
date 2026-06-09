@@ -376,20 +376,31 @@ class PlaylistSyncService:
         一次性扫描整个 downloads 目录，返回小写文件名主干的集合，
         用于与歌单歌曲进行批量差集比对，避免逐曲目的文件系统检查。
         
+        同时去除音质标签（如 [无损]、[Hi-Res]）后的主干也加入集合，
+        以便匹配不同路径下载的文件。
+        
         Returns:
-            小写文件名主干集合，如 {"周杰伦 - 晴天", "林俊杰 - 江南"}
+            小写文件名主干集合
         """
         stems = set()
         try:
             if not self.downloads_path.exists():
                 return stems
-            
+
+            # 音质标签正则：匹配 [xxx] 模式
+            import re
+            quality_tag_pattern = re.compile(r'\s*\[(?:标准|极高|无损|Hi-Res|环绕声|高清环绕|母带)\]\s*')
+
             for entry in self.downloads_path.iterdir():
                 if entry.is_file():
-                    # 只收集音频文件，跳过 sync_history.json 等非音频文件
                     suffix = entry.suffix.lower()
                     if suffix in ('.mp3', '.flac', '.m4a', '.wav', '.ogg', '.wma'):
-                        stems.add(entry.stem.lower())
+                        stem = entry.stem.lower()
+                        stems.add(stem)
+                        # 同时加入去除音质标签的版本
+                        stripped = quality_tag_pattern.sub('', stem).strip()
+                        if stripped != stem:
+                            stems.add(stripped)
         except Exception as e:
             self.logger.warning(f"扫描本地文件失败: {e}")
         
