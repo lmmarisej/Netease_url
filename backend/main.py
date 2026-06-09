@@ -465,46 +465,50 @@ api_service = MusicAPIService(config)
 
 @app.route('/api/lyrics', methods=['GET'])
 def public_lyrics_query():
-    """公开歌词查询接口（代理模式）
+    """公开歌词查询接口（代理模式），返回纯文本 LRC
 
     1. 先查本地 SQLite DB
     2. 未命中则搜索网易云 API → 获取歌词 → 存入本地 DB → 返回
-    3. 仍未命中返回空
+    3. 仍未命中返回空字符串
 
     Query params:
         title   - 歌曲名
         artist  - 歌手名（可选）
         duration - 当前歌曲总时长(秒)（可选，保留兼容）
 
-    Returns: flat JSON { "lyric": "...", "tlyric": "..." }
+    Returns: text/plain 原始 LRC 文本，无 JSON 包装
     """
+    import re
+    def _fix_ts(text):
+        if not text:
+            return ''
+        return re.sub(r'(\[\d{2}:\d{2}\.\d{2})\d\]', r'\1]', text)
+
     lrc = ''
-    tlrc = ''
     try:
         title = request.args.get('title', '').strip()
         artist = request.args.get('artist', '').strip()
 
         if not title:
-            return _lyric_json_response('', '')
+            return Response('', mimetype='text/plain; charset=utf-8')
 
         # 第1步：查本地 DB
         db = LyricsDB()
         result = db.search_public(title=title, artist=artist)
         if result:
             lrc = result.get('original_lyric', '')
-            tlrc = result.get('translated_lyric', '')
-            return _lyric_json_response(lrc, tlrc)
+            return Response(_fix_ts(lrc), mimetype='text/plain; charset=utf-8')
 
         # 第2步：代理网易云 API 搜索 + 获取歌词
         search_keyword = f"{title} {artist}".strip()
         cookies = api_service.cookie_manager.parse_cookies()
         if not cookies:
-            return _lyric_json_response('', '')
+            return Response('', mimetype='text/plain; charset=utf-8')
 
         import json as _json
         search_results = search_music(search_keyword, cookies, limit=5)
         if not search_results:
-            return _lyric_json_response('', '')
+            return Response('', mimetype='text/plain; charset=utf-8')
 
         # 找到最佳匹配
         matched_song = None
@@ -521,7 +525,7 @@ def public_lyrics_query():
 
         lyric_result = lyric_v1(song_id, cookies)
         if not lyric_result:
-            return _lyric_json_response('', '')
+            return Response('', mimetype='text/plain; charset=utf-8')
 
         lrc = lyric_result.get('lrc', {}).get('lyric', '')
         tlrc = lyric_result.get('tlyric', {}).get('lyric', '')
@@ -542,19 +546,7 @@ def public_lyrics_query():
     except Exception as e:
         api_service.logger.error(f"公开歌词查询异常: {e}")
 
-    return _lyric_json_response(lrc, tlrc)
-
-
-def _lyric_json_response(lrc: str, tlrc: str):
-    """构建扁平 JSON 响应，保持 Unicode 不转义，毫秒保留两位"""
-    import json as _json
-    import re
-    def _fix_ts(text):
-        if not text:
-            return ''
-        return re.sub(r'(\[\d{2}:\d{2}\.\d{2})\d\]', r'\1]', text)
-    body = _json.dumps({'lyric': _fix_ts(lrc), 'tlyric': _fix_ts(tlrc)}, ensure_ascii=False)
-    return Response(body, mimetype='application/json')
+    return Response(_fix_ts(lrc), mimetype='text/plain; charset=utf-8')
 
 
 @app.route('/', defaults={'path': ''})
