@@ -1428,7 +1428,7 @@ def _get_lyrics_db() -> LyricsDB:
     return db
 
 
-@app.route('/api/lyrics', methods=['GET'])
+@app.route('/api/lyrics/list', methods=['GET'])
 def get_lyrics_list():
     """获取所有已保存的歌词列表（分页）"""
     try:
