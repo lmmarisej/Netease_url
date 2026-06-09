@@ -457,53 +457,101 @@ api_service = MusicAPIService(config)
 
 @app.route('/api/lyrics', methods=['GET'])
 def public_lyrics_query():
-    """公开歌词查询接口
+    """公开歌词查询接口（代理模式）
+
+    1. 先查本地 SQLite DB
+    2. 未命中则搜索网易云 API → 获取歌词 → 存入本地 DB → 返回
+    3. 仍未命中返回 404
 
     Query params:
         title   - 歌曲名
         artist  - 歌手名（可选）
         duration - 当前歌曲总时长(秒)（可选，保留兼容）
-    
-    Returns:
-        { "code": 200, "msg": "success", "data": { "lyric": "...", "tlyric": "..." } }
     """
     try:
         title = request.args.get('title', '').strip()
         artist = request.args.get('artist', '').strip()
 
         if not title:
-            return {
-                'code': 400,
-                'msg': '缺少参数 title',
-                'data': None
-            }
+            return {'code': 400, 'msg': '缺少参数 title', 'data': None}
 
+        # 第1步：查本地 DB
         db = LyricsDB()
         result = db.search_public(title=title, artist=artist)
-
-        if not result:
+        if result:
             return {
-                'code': 404,
-                'msg': '未找到歌词',
-                'data': None
+                'code': 200, 'msg': 'success',
+                'data': {
+                    'lyric': result.get('original_lyric', ''),
+                    'tlyric': result.get('translated_lyric', ''),
+                }
             }
 
+        # 第2步：代理网易云 API 搜索 + 获取歌词
+        search_keyword = f"{title} {artist}".strip()
+        cookies = api_service.cookie_manager.parse_cookies()
+        if not cookies:
+            api_service.logger.warning(f"公开歌词查询无可用 Cookie，无法代理网易云 API")
+            return {'code': 404, 'msg': '未找到歌词', 'data': None}
+
+        # 搜索歌曲
+        import json as _json
+        search_results = search_music(search_keyword, cookies, limit=5)
+        if not search_results:
+            return {'code': 404, 'msg': '未找到歌词', 'data': None}
+
+        # 找到最佳匹配（优先精确匹配 title）
+        matched_song = None
+        for song in search_results:
+            s_name = song.get('name', '')
+            if s_name.lower() == title.lower():
+                matched_song = song
+                break
+        if not matched_song:
+            matched_song = search_results[0]  # 降级：取第一个
+
+        song_id = matched_song.get('id')
+        song_name = matched_song.get('name', title)
+        song_artist = matched_song.get('artists', artist)
+
+        # 获取歌词
+        lyric_result = lyric_v1(song_id, cookies)
+        if not lyric_result:
+            return {'code': 404, 'msg': '未找到歌词', 'data': None}
+
+        original_lyric = lyric_result.get('lrc', {}).get('lyric', '')
+        translated_lyric = lyric_result.get('tlyric', {}).get('lyric', '')
+
+        # 存入本地 DB
+        db.save_lyric(
+            song_id=song_id,
+            song_name=song_name,
+            artist=song_artist,
+            album='',
+            original_lyric=original_lyric,
+            translated_lyric=translated_lyric,
+            lyric_raw=_json.dumps(lyric_result, ensure_ascii=False),
+        )
+        # 尝试导出 .lrc 文件到下载目录
+        if config.download_lyric_save_lrc:
+            from lyrics_db import save_lrc_file
+            safe_stem = ''.join(c for c in f"{song_artist} - {song_name}" if c not in r'<>:"/\|?*')
+            download_dir = _get_user_downloads_path()
+            save_lrc_file(download_dir, safe_stem, original_lyric, translated_lyric)
+
+        api_service.logger.info(f"公开歌词查询代理成功: {title} → song_id={song_id}")
+
         return {
-            'code': 200,
-            'msg': 'success',
+            'code': 200, 'msg': 'success',
             'data': {
-                'lyric': result.get('original_lyric', ''),
-                'tlyric': result.get('translated_lyric', ''),
+                'lyric': original_lyric,
+                'tlyric': translated_lyric,
             }
         }
 
     except Exception as e:
         api_service.logger.error(f"公开歌词查询异常: {e}")
-        return {
-            'code': 500,
-            'msg': f'服务器错误: {str(e)}',
-            'data': None
-        }
+        return {'code': 500, 'msg': f'服务器错误: {str(e)}', 'data': None}
 
 
 @app.route('/', defaults={'path': ''})
