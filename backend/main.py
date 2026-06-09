@@ -44,6 +44,11 @@ try:
         get_events_catalog, EVENT_DISPLAY_NAMES, EVENT_CATEGORIES
     )
     from push_manager import init_push_routes
+    from auth import (
+        verify_credentials, generate_token, verify_token,
+        get_current_user, set_current_user, login_required,
+        get_user_config_path, get_user_downloads_dir, get_user_config_dir
+    )
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
@@ -318,10 +323,36 @@ class MusicAPIService:
             return {}
 
 
-# 同步配置文件路径
-SYNC_CONFIG_FILE = str(Path('config') / 'sync_config.json')
+# 同步配置文件路径（支持用户维度）
+def _get_user_sync_config_path() -> str:
+    username = get_current_user()
+    if username:
+        return str(get_user_config_path(username, 'sync_config.json'))
+    return str(Path('config') / 'sync_config.json')
 
-# 项目配置文件路径
+
+def _get_user_settings_path() -> str:
+    username = get_current_user()
+    if username:
+        return str(get_user_config_path(username, 'settings.json'))
+    return str(Path('config') / 'settings.json')
+
+
+def _get_user_push_config_path() -> str:
+    username = get_current_user()
+    if username:
+        return str(get_user_config_path(username, 'push_config.json'))
+    return str(Path('config') / 'push_config.json')
+
+
+def _get_user_cookie_path() -> str:
+    username = get_current_user()
+    if username:
+        return str(get_user_config_path(username, 'cookie.txt'))
+    return str(Path('config') / 'cookie.txt')
+
+
+SYNC_CONFIG_FILE = str(Path('config') / 'sync_config.json')
 SETTINGS_CONFIG_FILE = str(Path('config') / 'settings.json')
 
 
@@ -391,14 +422,57 @@ def serve_frontend(path):
     return send_from_directory(FRONTEND_DIR, 'index.html')
 
 
+# 无需认证的 API 路径白名单
+AUTH_WHITELIST = {
+    '/api/auth/login',
+    '/api/auth/verify',
+    '/api/health',
+    '/api/info',
+}
+
+
 @app.before_request
 def before_request():
-    """请求前处理"""
+    """请求前处理：日志记录 + Token 认证"""
     # 记录请求信息
     api_service.logger.info(
         f"{request.method} {request.path} - IP: {request.remote_addr} - "
         f"User-Agent: {request.headers.get('User-Agent', 'Unknown')}"
     )
+
+    # OPTIONS 预检请求直接放行
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # 仅对 /api/ 路径做认证校验，静态资源放行
+    if not request.path.startswith('/api/'):
+        return
+
+    # 白名单路径放行
+    if request.path in AUTH_WHITELIST:
+        return
+
+    # 验证 Token
+    token = _extract_token_from_request()
+    if not token:
+        return APIResponse.error("未提供认证Token，请先登录", 401)
+
+    username = verify_token(token)
+    if not username:
+        return APIResponse.error("Token无效或已过期，请重新登录", 401)
+
+    set_current_user(username)
+
+
+def _extract_token_from_request():
+    """从请求中提取 Bearer token"""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header[7:]
+    token = request.args.get('token', '')
+    if token:
+        return token
+    return None
 
 
 @app.after_request
@@ -408,7 +482,7 @@ def after_request(response: Response) -> Response:
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
-    
+
     # 记录响应信息
     api_service.logger.info(f"响应状态: {response.status_code}")
     return response
@@ -432,6 +506,65 @@ def handle_internal_error(e):
     api_service.logger.error(f"服务器内部错误: {e}")
     return APIResponse.error("服务器内部错误", 500)
 
+
+# ==================== 认证 API ====================
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """用户登录 API
+
+    Request JSON:
+        { "username": "admin", "password": "admin123" }
+
+    Response:
+        { "status": 200, "success": true, "data": { "token": "...", "username": "admin" } }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username or not password:
+            return APIResponse.error("用户名和密码不能为空", 400)
+
+        if not verify_credentials(username, password):
+            return APIResponse.error("用户名或密码错误", 401)
+
+        token = generate_token(username)
+        set_current_user(username)
+
+        api_service.logger.info(f"用户登录成功: {username}")
+        return APIResponse.success({
+            'token': token,
+            'username': username,
+        }, "登录成功")
+
+    except Exception as e:
+        api_service.logger.error(f"登录异常: {e}")
+        return APIResponse.error(f"登录失败: {str(e)}", 500)
+
+
+@app.route('/api/auth/verify', methods=['GET'])
+def auth_verify():
+    """验证 Token 有效性
+
+    Headers:
+        Authorization: Bearer <token>
+
+    Response:
+        { "status": 200, "success": true, "data": { "username": "admin", "valid": true } }
+    """
+    username = get_current_user()
+    if not username:
+        return APIResponse.error("Token无效或已过期", 401)
+
+    return APIResponse.success({
+        'username': username,
+        'valid': True,
+    }, "Token有效")
+
+
+# ==================== API 路由 ====================
 
 @app.route('/api/api-docs', methods=['GET'])
 def api_docs_json():
@@ -1248,7 +1381,7 @@ def get_settings():
 
 @app.route('/api/settings', methods=['POST'])
 def save_settings():
-    """保存下载等通用配置到 settings.json"""
+    """保存下载等通用配置到用户专属 settings.json"""
     try:
         data = api_service._safe_get_request_data()
 
@@ -1263,8 +1396,8 @@ def save_settings():
         if 'download_quality_in_filename' in data:
             config.download_quality_in_filename = str(data['download_quality_in_filename']).lower() in ('true', '1', 'yes')
 
-        # 保存到 settings.json
-        settings_path = Path(SETTINGS_CONFIG_FILE)
+        # 保存到用户专属 settings.json
+        settings_path = Path(_get_user_settings_path())
         current = {}
         if settings_path.exists():
             with open(settings_path, 'r', encoding='utf-8') as f:

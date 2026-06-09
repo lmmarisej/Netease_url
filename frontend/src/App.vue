@@ -1,5 +1,14 @@
 <template>
   <v-app>
+    <!-- 登录页：全屏无布局 -->
+    <template v-if="isLoginPage">
+      <v-main>
+        <router-view />
+      </v-main>
+    </template>
+
+    <!-- 其他页面：正常布局 -->
+    <template v-else>
     <!-- 顶部应用栏 -->
     <v-app-bar flat density="compact" color="surface" elevation="1">
       <v-app-bar-nav-icon>
@@ -10,6 +19,22 @@
       </v-toolbar-title>
 
       <v-spacer />
+
+      <!-- 用户信息 -->
+      <v-chip v-if="currentUser" size="small" variant="tonal" color="primary" class="mr-2">
+        <v-icon start size="16">mdi-account</v-icon>
+        {{ currentUser }}
+      </v-chip>
+
+      <v-btn
+        v-if="currentUser"
+        icon="mdi-logout"
+        variant="text"
+        size="small"
+        title="退出登录"
+        @click="handleLogout"
+        class="mr-1"
+      />
 
       <v-btn
         icon
@@ -54,6 +79,7 @@
         </router-view>
       </div>
     </v-main>
+    </template>
 
     <!-- 全局播放器底栏（v-footer + v-show，始终在 DOM 中让 Vuetify 正确计算布局） -->
     <v-footer v-show="playerFilename" app height="56" class="pa-0" style="z-index:100;border-top:1px solid rgb(var(--v-theme-surface-variant))">
@@ -85,9 +111,20 @@
 <script setup>
 import { reactive, computed, ref, nextTick } from 'vue'
 import { useTheme } from 'vuetify'
+import { useRouter, useRoute } from 'vue-router'
 
 const theme = useTheme()
+const router = useRouter()
+const route = useRoute()
 const isDark = computed(() => theme.global.current.value.dark)
+const isLoginPage = computed(() => route.path === '/login')
+const currentUser = computed(() => localStorage.getItem('username') || '')
+
+function handleLogout() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('username')
+  router.replace('/login')
+}
 
 const menuItems = [
   { to: '/', icon: 'mdi-magnify', title: '音乐搜索' },

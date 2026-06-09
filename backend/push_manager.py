@@ -15,20 +15,37 @@ from flask import request, render_template
 from event_bus import event_bus, Event, EventType, fire_event, get_events_catalog
 
 
-PUSH_CONFIG_FILE = str(Path('config') / 'push_config.json')
+try:
+    from auth import get_current_user, get_user_config_path
+except ImportError:
+    def get_current_user():
+        return None
+    def get_user_config_path(username, name):
+        return Path('config') / name
+
+
+def _get_push_config_path() -> str:
+    """获取用户专属推送配置文件路径"""
+    username = get_current_user()
+    if username:
+        return str(get_user_config_path(username, 'push_config.json'))
+    return str(Path('config') / 'push_config.json')
 
 
 def _load_push_config() -> Dict[str, Any]:
-    """加载推送配置"""
-    if Path(PUSH_CONFIG_FILE).exists():
-        with open(PUSH_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    """加载推送配置（用户专属）"""
+    config_path = _get_push_config_path()
+    if Path(config_path).exists():
+        with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {'pushes': []}
 
 
 def _save_push_config(data: Dict[str, Any]) -> None:
-    """保存推送配置"""
-    with open(PUSH_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    """保存推送配置（用户专属）"""
+    config_path = _get_push_config_path()
+    Path(config_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
