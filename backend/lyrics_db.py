@@ -255,6 +255,47 @@ class LyricsDB:
             logger.error(f"删除歌词失败 (song_id={song_id}): {e}")
             return False
 
+    def search_public(self, title: str = '', artist: str = '') -> Optional[Dict[str, Any]]:
+        """公开歌词搜索（无需用户隔离），按歌曲名+艺术家匹配
+
+        Returns:
+            匹配的歌词字典，不存在返回 None
+        """
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.row_factory = sqlite3.Row
+            # 优先精确匹配，其次模糊匹配
+            row = conn.execute(
+                """SELECT * FROM lyrics
+                   WHERE song_name = ? AND artist = ?
+                   ORDER BY updated_at DESC
+                   LIMIT 1""",
+                (title, artist)
+            ).fetchone()
+            if not row:
+                # 模糊匹配：歌曲名包含 title 且艺术家包含 artist
+                row = conn.execute(
+                    """SELECT * FROM lyrics
+                       WHERE song_name LIKE ? AND artist LIKE ?
+                       ORDER BY updated_at DESC
+                       LIMIT 1""",
+                    (f"%{title}%", f"%{artist}%")
+                ).fetchone()
+            if not row and title:
+                # 再降级：仅按歌曲名匹配
+                row = conn.execute(
+                    """SELECT * FROM lyrics
+                       WHERE song_name LIKE ?
+                       ORDER BY updated_at DESC
+                       LIMIT 1""",
+                    (f"%{title}%",)
+                ).fetchone()
+            conn.close()
+            return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"公开歌词搜索失败: {e}")
+            return None
+
     def get_count(self, username: str = '') -> int:
         """获取歌词总数"""
         try:

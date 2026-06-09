@@ -453,6 +453,59 @@ app.config['JSON_AS_ASCII'] = False
 api_service = MusicAPIService(config)
 
 
+# ==================== 公开歌词查询（无需鉴权，供第三方如音流使用） ====================
+
+@app.route('/api/lyrics', methods=['GET'])
+def public_lyrics_query():
+    """公开歌词查询接口
+
+    Query params:
+        title   - 歌曲名
+        artist  - 歌手名（可选）
+        duration - 当前歌曲总时长(秒)（可选，保留兼容）
+    
+    Returns:
+        { "code": 200, "msg": "success", "data": { "lyric": "...", "tlyric": "..." } }
+    """
+    try:
+        title = request.args.get('title', '').strip()
+        artist = request.args.get('artist', '').strip()
+
+        if not title:
+            return {
+                'code': 400,
+                'msg': '缺少参数 title',
+                'data': None
+            }
+
+        db = LyricsDB()
+        result = db.search_public(title=title, artist=artist)
+
+        if not result:
+            return {
+                'code': 404,
+                'msg': '未找到歌词',
+                'data': None
+            }
+
+        return {
+            'code': 200,
+            'msg': 'success',
+            'data': {
+                'lyric': result.get('original_lyric', ''),
+                'tlyric': result.get('translated_lyric', ''),
+            }
+        }
+
+    except Exception as e:
+        api_service.logger.error(f"公开歌词查询异常: {e}")
+        return {
+            'code': 500,
+            'msg': f'服务器错误: {str(e)}',
+            'data': None
+        }
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
@@ -471,6 +524,7 @@ AUTH_WHITELIST = {
     '/api/auth/verify',
     '/api/health',
     '/api/info',
+    '/api/lyrics',
 }
 
 
