@@ -69,7 +69,7 @@ const confirmDelete=ref(false),deleteTargets=ref([])
 const headers=[{title:'文件名',key:'name',sortable:true},{title:'大小',key:'size',sortable:true},{title:'修改时间',key:'modified',sortable:true},{title:'操作',key:'actions',sortable:false,width:200}]
 const dirInfo=computed(()=>`📂 downloads/ (${filteredFiles.value.length}/${files.value.length} 个文件)`)
 const filteredFiles=computed(()=>{let r=files.value;if(audioOnly.value)r=r.filter(f=>/\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name));if(extFilter.value.trim()){const e=extFilter.value.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');r=r.filter(f=>new RegExp('\\.'+e+'$',ignoreCase.value?'i':'').test(f.name))}return r})
-function formatSize(b){return b?(b/1048576).toFixed(2)+' MB':'0.00 MB'}
+function formatSize(b){if(!b)return'0 KB';return b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB'}
 function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}
 function isTextFile(n){return !isAudio(n)&&!/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(n)}
 async function loadFiles(){loading.value=true;try{const r=await getFileList();if(r?.status===200)files.value=r.data?.files||[]}catch(e){window.__snackbar?.('加载失败','error')}finally{loading.value=false}}

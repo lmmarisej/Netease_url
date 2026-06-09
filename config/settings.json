@@ -14,5 +14,6 @@
   "sync_quality": "lossless",
   "sync_interval": 3600,
   "cron_expression": "",
-  "download_default_quality": "exhigh"
+  "download_default_quality": "exhigh",
+  "download_lyric_save_lrc": true
 }

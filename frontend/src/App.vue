@@ -129,6 +129,7 @@ function handleLogout() {
 const menuItems = [
   { to: '/', icon: 'mdi-magnify', title: '音乐搜索' },
   { to: '/files', icon: 'mdi-folder-multiple', title: '文件管理' },
+  { to: '/sync', icon: 'mdi-playlist-music', title: '歌单同步' },
   { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
   { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },
   { to: '/tasks', icon: 'mdi-chart-bar', title: '任务管理' },

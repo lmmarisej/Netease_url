@@ -47,6 +47,7 @@ try:
         get_events_catalog, EVENT_DISPLAY_NAMES, EVENT_CATEGORIES
     )
     from push_manager import init_push_routes
+    from lyrics_db import LyricsDB, save_lyric_from_music_info, get_lyrics_db_path
     from auth import (
         verify_credentials, generate_token, verify_token,
         get_current_user, set_current_user, login_required,
@@ -77,7 +78,8 @@ class APIConfig:
     sync_quality: str = 'lossless'
     sync_interval: int = 3600
     cron_expression: str = None
-
+    download_lyric_save_lrc: bool = True
+    
     def __post_init__(self):
         if self.playlist_ids is None:
             self.playlist_ids = []
@@ -1005,6 +1007,41 @@ def get_album():
         return APIResponse.error(f"获取专辑失败: {str(e)}", 500)
 
 
+def _fetch_and_save_lyric(music_id, song_info, cookies, safe_filename='', download_dir=''):
+    """获取歌词并保存到 SQLite + 导出 .lrc 文件"""
+    try:
+        username = get_current_user() or ''
+        lyric_result = lyric_v1(music_id, cookies)
+        if not lyric_result:
+            return
+
+        song_data = song_info.get('songs', [{}])[0] if song_info.get('songs') else {}
+        artist_name = ', '.join(a.get('name', '') for a in song_data.get('ar', []))
+        album_name = song_data.get('al', {}).get('name', '') if song_data.get('al') else ''
+        original_lyric = lyric_result.get('lrc', {}).get('lyric', '')
+        translated_lyric = lyric_result.get('tlyric', {}).get('lyric', '')
+
+        db = LyricsDB()
+        import json as _json
+        db.save_lyric(
+            song_id=music_id,
+            song_name=song_data.get('name', ''),
+            artist=artist_name,
+            album=album_name,
+            original_lyric=original_lyric,
+            translated_lyric=translated_lyric,
+            lyric_raw=_json.dumps(lyric_result, ensure_ascii=False),
+            username=username,
+        )
+        # 导出 .lrc 文件到歌曲同目录（受 download_lyric_save_lrc 配置控制）
+        if config.download_lyric_save_lrc and safe_filename and download_dir:
+            from lyrics_db import save_lrc_file
+            save_lrc_file(Path(download_dir), safe_filename, original_lyric, translated_lyric)
+        api_service.logger.debug(f"歌词已保存到 SQLite: {music_id} - {song_data.get('name', '')}")
+    except Exception as e:
+        api_service.logger.warning(f"保存歌词到 SQLite 失败 (song_id={music_id}): {e}")
+
+
 @app.route('/api/download', methods=['GET', 'POST'])
 @app.route('/api/download', methods=['GET', 'POST'])  # 向后兼容
 def download_music_api():
@@ -1056,6 +1093,12 @@ def download_music_api():
                 task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='未找到音乐信息', error='歌曲不存在')
                 return APIResponse.error("未找到音乐信息", 404)
             
+            # 获取歌词并保存到 SQLite + .lrc 文件
+            song_data = song_info.get('songs', [{}])[0] if song_info.get('songs') else {}
+            song_name_raw = song_data.get('name', 'unknown')
+            safe_name = ''.join(c for c in song_name_raw if c not in r'<>:"/\|?*')
+            _fetch_and_save_lyric(music_id, song_info, cookies, safe_name, str(download_dir))
+
             # 获取音乐下载链接（支持音质降级）
             task_manager.update_task(task.task_id, message='正在获取下载链接...', progress=30)
             quality_order = ['jymaster', 'sky', 'jyeffect', 'hires', 'lossless', 'exhigh', 'standard']
@@ -1256,7 +1299,12 @@ def api_info():
                 '/sync/now': 'POST - 立即执行同步',
                 '/api/info': 'GET - API信息',
                 '/api-docs': 'GET - API文档页面',
-                '/api/api-docs': 'GET - API文档JSON'
+                '/api/api-docs': 'GET - API文档JSON',
+                '/api/lyrics': 'GET - 获取已保存歌词列表',
+                '/api/lyrics/search': 'GET - 搜索歌词',
+                '/api/lyrics/<song_id>': 'GET - 获取指定歌曲歌词',
+                '/api/lyrics/<song_id>': 'DELETE - 删除指定歌曲歌词',
+                '/api/lyrics/count': 'GET - 获取歌词总数',
             },
             'supported_qualities': [
                 'standard', 'exhigh', 'lossless', 
@@ -1276,6 +1324,88 @@ def api_info():
     except Exception as e:
         api_service.logger.error(f"获取API信息异常: {e}")
         return APIResponse.error(f"获取API信息失败: {str(e)}", 500)
+
+
+# ==================== 歌词数据库 API ====================
+
+def _get_lyrics_db() -> LyricsDB:
+    """获取歌词数据库实例（单库，通过 set_user 设置当前用户）"""
+    db = LyricsDB()
+    db.set_user(get_current_user() or '')
+    return db
+
+
+@app.route('/api/lyrics', methods=['GET'])
+def get_lyrics_list():
+    """获取所有已保存的歌词列表（分页）"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        db = _get_lyrics_db()
+        items, total = db.get_all_lyrics(limit=limit, offset=offset)
+        return APIResponse.success({
+            'items': items,
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+        }, "获取歌词列表成功")
+    except Exception as e:
+        return APIResponse.error(f"获取歌词列表失败: {str(e)}", 500)
+
+
+@app.route('/api/lyrics/search', methods=['GET'])
+def search_lyrics_api():
+    """搜索歌词"""
+    try:
+        keyword = request.args.get('keyword', '')
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        if not keyword:
+            return APIResponse.error("请提供搜索关键词")
+        db = _get_lyrics_db()
+        items, total = db.search_lyrics(keyword, limit=limit, offset=offset)
+        return APIResponse.success({
+            'items': items,
+            'total': total,
+            'keyword': keyword,
+        }, "搜索歌词成功")
+    except Exception as e:
+        return APIResponse.error(f"搜索歌词失败: {str(e)}", 500)
+
+
+@app.route('/api/lyrics/<int:song_id>', methods=['GET'])
+def get_lyric_by_id(song_id):
+    """根据歌曲 ID 获取歌词"""
+    try:
+        db = _get_lyrics_db()
+        lyric = db.get_lyric(song_id)
+        if lyric:
+            return APIResponse.success(lyric, "获取歌词成功")
+        return APIResponse.error(f"未找到歌曲 {song_id} 的歌词", 404)
+    except Exception as e:
+        return APIResponse.error(f"获取歌词失败: {str(e)}", 500)
+
+
+@app.route('/api/lyrics/<int:song_id>', methods=['DELETE'])
+def delete_lyric_api(song_id):
+    """删除指定歌曲的歌词"""
+    try:
+        db = _get_lyrics_db()
+        db.delete_lyric(song_id)
+        return APIResponse.success(None, f"歌词 {song_id} 已删除")
+    except Exception as e:
+        return APIResponse.error(f"删除歌词失败: {str(e)}", 500)
+
+
+@app.route('/api/lyrics/count', methods=['GET'])
+def get_lyrics_count():
+    """获取歌词总数"""
+    try:
+        db = _get_lyrics_db()
+        count = db.get_count()
+        return APIResponse.success({'count': count}, "获取歌词总数成功")
+    except Exception as e:
+        return APIResponse.error(f"获取歌词总数失败: {str(e)}", 500)
 
 
 @app.route('/api/sync/config', methods=['GET'])
@@ -1471,6 +1601,7 @@ def get_settings():
             'download_browser': config.download_browser,
             'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
             'download_quality_in_filename': getattr(config, 'download_quality_in_filename', True),
+            'download_lyric_save_lrc': getattr(config, 'download_lyric_save_lrc', True),
         }, "获取配置成功")
     except Exception as e:
         return APIResponse.error(f"获取配置失败: {str(e)}", 500)
@@ -1492,6 +1623,8 @@ def save_settings():
             config.download_default_quality = data['download_default_quality']
         if 'download_quality_in_filename' in data:
             config.download_quality_in_filename = str(data['download_quality_in_filename']).lower() in ('true', '1', 'yes')
+        if 'download_lyric_save_lrc' in data:
+            config.download_lyric_save_lrc = str(data['download_lyric_save_lrc']).lower() in ('true', '1', 'yes')
 
         # 保存到用户专属 settings.json
         settings_path = Path(_get_user_settings_path())
@@ -1504,6 +1637,7 @@ def save_settings():
         current['download_browser'] = config.download_browser
         current['download_default_quality'] = getattr(config, 'download_default_quality', 'lossless')
         current['download_quality_in_filename'] = getattr(config, 'download_quality_in_filename', True)
+        current['download_lyric_save_lrc'] = getattr(config, 'download_lyric_save_lrc', True)
         with open(settings_path, 'w', encoding='utf-8') as f:
             json.dump(current, f, ensure_ascii=False, indent=2)
 
@@ -1519,6 +1653,7 @@ def save_settings():
             'download_browser': config.download_browser,
             'download_default_quality': getattr(config, 'download_default_quality', 'lossless'),
             'download_quality_in_filename': getattr(config, 'download_quality_in_filename', True),
+            'download_lyric_save_lrc': getattr(config, 'download_lyric_save_lrc', True),
         }, "配置保存成功")
     except Exception as e:
         api_service.logger.error(f"保存配置异常: {e}")
@@ -1761,6 +1896,7 @@ if __name__ == '__main__':
     config.sync_quality = file_config.get('sync_quality', settings.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless'))))
     config.sync_interval = int(file_config.get('sync_interval', settings.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600'))))
     config.cron_expression = file_config.get('cron_expression', settings.get('cron_expression', os.getenv('CRON_EXPRESSION', ''))) or None
+    config.download_lyric_save_lrc = settings.get('download_lyric_save_lrc', True)
     
     start_api_server()
 

@@ -27,6 +27,7 @@ from mutagen.mp4 import MP4
 
 from music_api import NeteaseAPI, APIException
 from cookie_manager import CookieManager
+from lyrics_db import save_lyric_from_music_info
 
 
 class AudioFormat(Enum):
@@ -65,6 +66,7 @@ class MusicInfo:
     quality: str
     lyric: str = ""
     tlyric: str = ""
+    lyric_raw: str = ""
 
 
 @dataclass
@@ -197,9 +199,11 @@ class MusicDownloader:
             song_detail = detail_result['songs'][0]
             
             # 获取歌词
+            import json
             lyric_result = self.api.get_lyric(music_id, cookies)
             lyric = lyric_result.get('lrc', {}).get('lyric', '') if lyric_result else ''
             tlyric = lyric_result.get('tlyric', {}).get('lyric', '') if lyric_result else ''
+            lyric_raw = json.dumps(lyric_result, ensure_ascii=False) if lyric_result else ''
             
             # 构建艺术家字符串
             artists = '/'.join(artist['name'] for artist in song_detail.get('ar', []))
@@ -218,7 +222,8 @@ class MusicDownloader:
                 file_size=song_data.get('size', 0),
                 quality=quality,
                 lyric=lyric,
-                tlyric=tlyric
+                tlyric=tlyric,
+                lyric_raw=lyric_raw
             )
             
             return music_info
@@ -228,12 +233,14 @@ class MusicDownloader:
         except Exception as e:
             raise DownloadException(f"获取音乐信息时发生错误: {e}")
     
-    def download_music_file(self, music_id: int, quality: str = "standard") -> DownloadResult:
+    def download_music_file(self, music_id: int, quality: str = "standard",
+                            username: str = None) -> DownloadResult:
         """下载音乐文件到本地
         
         Args:
             music_id: 音乐ID
             quality: 音质等级
+            username: 当前用户名（用于歌词数据库隔离）
             
         Returns:
             下载结果对象
@@ -252,6 +259,11 @@ class MusicDownloader:
             
             # 检查文件是否已存在
             if file_path.exists():
+                # 缓存命中也保存歌词 + .lrc 文件
+                save_lyric_from_music_info(music_info, music_info.lyric_raw,
+                                           username=username,
+                                           music_filename=safe_filename,
+                                           music_dir=str(self.download_dir))
                 return DownloadResult(
                     success=True,
                     file_path=str(file_path),
@@ -271,6 +283,12 @@ class MusicDownloader:
             
             # 写入音乐标签
             self._write_music_tags(file_path, music_info)
+            
+            # 保存歌词到 SQLite + .lrc 文件
+            save_lyric_from_music_info(music_info, music_info.lyric_raw,
+                                       username=username,
+                                       music_filename=safe_filename,
+                                       music_dir=str(self.download_dir))
             
             return DownloadResult(
                 success=True,
@@ -292,12 +310,14 @@ class MusicDownloader:
                 error_message=f"下载过程中发生错误: {e}"
             )
     
-    async def download_music_file_async(self, music_id: int, quality: str = "standard") -> DownloadResult:
+    async def download_music_file_async(self, music_id: int, quality: str = "standard",
+                                        username: str = None) -> DownloadResult:
         """异步下载音乐文件到本地
         
         Args:
             music_id: 音乐ID
             quality: 音质等级
+            username: 当前用户名（用于歌词数据库隔离）
             
         Returns:
             下载结果对象
@@ -316,6 +336,10 @@ class MusicDownloader:
             
             # 检查文件是否已存在
             if file_path.exists():
+                save_lyric_from_music_info(music_info, music_info.lyric_raw,
+                                           username=username,
+                                           music_filename=safe_filename,
+                                           music_dir=str(self.download_dir))
                 return DownloadResult(
                     success=True,
                     file_path=str(file_path),
@@ -334,6 +358,12 @@ class MusicDownloader:
             
             # 写入音乐标签
             self._write_music_tags(file_path, music_info)
+            
+            # 保存歌词到 SQLite + .lrc 文件
+            save_lyric_from_music_info(music_info, music_info.lyric_raw,
+                                       username=username,
+                                       music_filename=safe_filename,
+                                       music_dir=str(self.download_dir))
             
             return DownloadResult(
                 success=True,
@@ -355,12 +385,14 @@ class MusicDownloader:
                 error_message=f"异步下载过程中发生错误: {e}"
             )
     
-    def download_music_to_memory(self, music_id: int, quality: str = "standard") -> Tuple[bool, BytesIO, MusicInfo]:
+    def download_music_to_memory(self, music_id: int, quality: str = "standard",
+                                  username: str = None) -> Tuple[bool, BytesIO, MusicInfo]:
         """下载音乐到内存
         
         Args:
             music_id: 音乐ID
             quality: 音质等级
+            username: 当前用户名（用于歌词数据库隔离）
             
         Returns:
             (是否成功, 音乐数据流, 音乐信息)
@@ -378,6 +410,10 @@ class MusicDownloader:
             
             # 创建BytesIO对象
             audio_data = BytesIO(response.content)
+            
+            # 保存歌词到 SQLite（内存下载无文件路径，不导出 .lrc）
+            save_lyric_from_music_info(music_info, music_info.lyric_raw,
+                                       username=username, save_lrc=False)
             
             return True, audio_data, music_info
             

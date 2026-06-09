@@ -20,6 +20,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/sync',
+    name: 'PlaylistSync',
+    component: () => import('@/views/PlaylistSync.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/config',
     name: 'Config',
     component: () => import('@/views/ConfigPage.vue'),
