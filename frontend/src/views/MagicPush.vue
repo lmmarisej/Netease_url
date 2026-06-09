@@ -40,7 +40,7 @@
                   <v-btn size="x-small" icon="mdi-delete" variant="text" color="error" @click="removeUrl(push.id,url.id)"/>
                 </div>
               </div>
-              <div class="text-caption text-medium-emphasis mt-2">可用变量：{song_name} {artist} {quality} {file_size} {error} {music_id} {playlist_name} {total_synced} {success_count} {total_count} {keyword}</div>
+              <div class="text-caption text-medium-emphasis mt-2">事件变量：{song_name} {artist} {quality} {file_size} {error} {music_id} {playlist_name} {total_synced} {success_count} {total_count} {keyword} ｜ 内置变量：{now} {当前时间}</div>
             </v-card-text>
           </v-expand-transition>
         </v-card>
@@ -57,7 +57,7 @@
               <v-col cols="12" sm="4"><v-text-field label="内容模板" :model-value="tpl.content" hide-details @update:model-value="v=>updateTpl(tpl.id,'content',v)"/></v-col>
               <v-col cols="12" sm="2"><v-select label="类型" :model-value="tpl.type||'text'" :items="['text']" hide-details @update:model-value="v=>updateTpl(tpl.id,'type',v)"/></v-col>
             </v-row>
-            <div class="text-caption text-medium-emphasis mt-2">可用变量：{song_name} {artist} {quality} {file_size} {error} {music_id} {playlist_name} {total_synced} {success_count} {total_count} {keyword}</div>
+            <div class="text-caption text-medium-emphasis mt-2">事件变量：{song_name} {artist} {quality} {file_size} {error} {music_id} {playlist_name} {total_synced} {success_count} {total_count} {keyword} ｜ 内置变量：{now} {当前时间}</div>
             <div class="mt-2"><v-btn size="small" color="error" variant="tonal" @click="removeTemplate(tpl.id)">删除</v-btn></div>
           </v-card-text>
         </v-card>

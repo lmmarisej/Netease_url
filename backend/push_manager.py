@@ -44,12 +44,29 @@ def _send_push_to_url(url: str, title: str, content: str,
 
 
 def _render_template(template: str, event_data: Dict[str, Any]) -> str:
-    """渲染消息模板，替换 {变量名} 占位符"""
+    """渲染消息模板，替换 {变量名} 占位符
+
+    支持两种变量来源：
+    1. 事件数据变量：从 event_data 中查找，如 {song_name}、{artist}
+    2. 内置变量：系统预定义的变量，如 {now}、{当前时间}
+    """
+    # 内置变量解析器
+    _builtin_vars = {
+        'now': lambda: time.strftime('%Y-%m-%d %H:%M:%S'),
+        '当前时间': lambda: time.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+
     def replace_var(match):
         var_name = match.group(1)
+        # 优先匹配内置变量
+        if var_name in _builtin_vars:
+            return _builtin_vars[var_name]()
+        # 其次从事件数据中查找
         value = event_data.get(var_name, '')
         return str(value) if value else f'{{{var_name}}}'
-    return re.sub(r'\{(\w+)\}', replace_var, template)
+
+    # 正则支持英文字母、数字、下划线及中文字符作为变量名
+    return re.sub(r'\{([\w\u4e00-\u9fff]+)\}', replace_var, template)
 
 
 class PushEventHandler:
