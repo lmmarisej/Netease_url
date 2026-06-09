@@ -72,6 +72,14 @@ export function saveCookie(data) {
   return api.post('/api/cookie', data)
 }
 
+export function activateCookie(name) {
+  return api.post('/api/cookie/activate', { name })
+}
+
+export function deleteCookie(name) {
+  return api.delete(`/api/cookie/${encodeURIComponent(name)}`)
+}
+
 // ==================== 设置 ====================
 
 export function getSettings() {

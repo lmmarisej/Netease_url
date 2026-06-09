@@ -124,8 +124,8 @@ class MusicAPIService:
         self.netease_api = NeteaseAPI()
         self.downloader = MusicDownloader()
         
-        # 创建下载目录（确保使用绝对路径）
-        self.downloads_path = Path(config.downloads_dir).resolve()
+        # 创建下载目录（基于项目根目录）
+        self.downloads_path = _PROJECT_ROOT / 'downloads'
         config.downloads_dir = str(self.downloads_path)
         self.downloads_path.mkdir(parents=True, exist_ok=True)
         
@@ -241,8 +241,13 @@ class MusicAPIService:
         return logger
     
     def _get_cookies(self) -> Dict[str, str]:
-        """获取Cookie"""
+        """获取Cookie（自动切换到用户专属文件）"""
         try:
+            username = get_current_user()
+            if username:
+                user_path = _get_user_cookie_path()
+                if user_path and Path(user_path).parent.exists():  # 仅在用户目录已存在时切换
+                    self.cookie_manager.set_cookie_file(user_path)
             cookie_str = self.cookie_manager.read_cookie()
             return self.cookie_manager.parse_cookie_string(cookie_str)
         except CookieException as e:
@@ -353,9 +358,9 @@ def _get_user_push_config_path() -> str:
 def _get_user_cookie_path() -> str:
     username = get_current_user()
     if username:
-        return str(get_user_config_path(username, 'cookie.txt'))
+        return str(get_user_config_path(username, 'cookies.json'))
     # 回退到共享配置
-    return str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'cookie.txt')
+    return str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'cookies.json')
 
 
 def _get_user_downloads_path() -> Path:
@@ -365,7 +370,10 @@ def _get_user_downloads_path() -> Path:
         p = get_user_downloads_dir(username)
         p.mkdir(parents=True, exist_ok=True)
         return p
-    return Path(config.downloads_dir)
+    # 回退时使用项目根目录 + downloads
+    p = _PROJECT_ROOT / 'downloads'
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 SYNC_CONFIG_FILE = str(_PROJECT_ROOT / 'config' / 'sync_config.json')
@@ -619,7 +627,10 @@ def api_logs():
     """日志内容 API——支持指定文件名，返回最近 1000 行（倒序）"""
     try:
         logs_dir = _PROJECT_ROOT / 'logs'
-        logs_dir.mkdir(exist_ok=True)
+        username = get_current_user()
+        if username:
+            logs_dir = _PROJECT_ROOT / 'logs' / username
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         # 获取日志文件列表
         log_files = sorted(
@@ -669,7 +680,10 @@ def api_logs_cleanup():
     """清理日志文件——清空所有 .log 文件内容"""
     try:
         logs_dir = _PROJECT_ROOT / 'logs'
-        logs_dir.mkdir(exist_ok=True)
+        username = get_current_user()
+        if username:
+            logs_dir = _PROJECT_ROOT / 'logs' / username
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         cleaned = []
         for log_file in logs_dir.glob('*.log'):
@@ -1368,19 +1382,17 @@ def trigger_sync_now():
 
 @app.route('/api/cookie', methods=['GET'])
 def get_cookie_config():
-    """获取Cookie配置信息（用户专属）"""
+    """获取所有命名 Cookie 列表"""
     try:
-        # 切换到用户专属 cookie 文件
         username = get_current_user()
         if username:
-            user_cookie = _get_user_cookie_path()
-            api_service.cookie_manager.set_cookie_file(user_cookie)
-        cookie_info = api_service.cookie_manager.get_cookie_info()
-        cookie_content = api_service.cookie_manager.read_cookie()
+            api_service.cookie_manager.set_cookie_file(_get_user_cookie_path())
+        cookies = api_service.cookie_manager.list_cookies()
+        active = api_service.cookie_manager.get_active_cookie_name()
         return APIResponse.success({
-            'info': cookie_info,
-            'content': cookie_content,
-            'file_path': str(api_service.cookie_manager.cookie_file)
+            'cookies': cookies,
+            'active': active,
+            'content': api_service.cookie_manager.read_cookie(),
         }, "获取Cookie配置成功")
     except Exception as e:
         api_service.logger.error(f"获取Cookie配置异常: {e}")
@@ -1389,41 +1401,63 @@ def get_cookie_config():
 
 @app.route('/api/cookie', methods=['POST'])
 def save_cookie_config():
-    """保存Cookie配置（用户专属）"""
+    """保存一个命名 Cookie"""
     try:
-        # 切换到用户专属 cookie 文件
         username = get_current_user()
         if username:
-            user_cookie = _get_user_cookie_path()
-            api_service.cookie_manager.set_cookie_file(user_cookie)
+            api_service.cookie_manager.set_cookie_file(_get_user_cookie_path())
         data = api_service._safe_get_request_data()
+        cookie_name = (data.get('name') or '默认').strip()
         cookie_content = (data.get('cookie') or data.get('content') or '').strip()
 
         if not cookie_content:
-            # 允许清空
-            api_service.cookie_manager.clear_cookie()
-            return APIResponse.success(None, "Cookie已清空")
+            return APIResponse.error("Cookie内容不能为空", 400)
 
-        # 验证格式
-        if not api_service.cookie_manager.validate_cookie_format(cookie_content):
-            return APIResponse.error("Cookie格式无效，请检查内容", 400)
-
-        # 写入文件
-        api_service.cookie_manager.write_cookie(cookie_content)
+        api_service.cookie_manager.save_named_cookie(cookie_name, cookie_content)
 
         fire_event(EventType.COOKIE_UPDATED, {
+            'name': cookie_name,
             'has_content': bool(cookie_content),
         }, source='api')
 
-        # 返回保存结果
-        info = api_service.cookie_manager.get_cookie_info()
         return APIResponse.success({
-            'info': info,
+            'name': cookie_name,
             'saved': True
-        }, "Cookie配置保存成功")
+        }, f"Cookie [{cookie_name}] 保存成功")
     except Exception as e:
         api_service.logger.error(f"保存Cookie配置异常: {e}")
         return APIResponse.error(f"保存Cookie配置失败: {str(e)}", 500)
+
+
+@app.route('/api/cookie/activate', methods=['POST'])
+def activate_cookie():
+    """激活指定的 Cookie"""
+    try:
+        username = get_current_user()
+        if username:
+            api_service.cookie_manager.set_cookie_file(_get_user_cookie_path())
+        data = api_service._safe_get_request_data()
+        name = (data.get('name') or '').strip()
+        if not name:
+            return APIResponse.error("Cookie名称不能为空", 400)
+        if api_service.cookie_manager.activate_cookie(name):
+            return APIResponse.success({'active': name}, f"已激活 Cookie [{name}]")
+        return APIResponse.error(f"Cookie [{name}] 不存在", 404)
+    except Exception as e:
+        return APIResponse.error(f"激活失败: {str(e)}", 500)
+
+
+@app.route('/api/cookie/<name>', methods=['DELETE'])
+def delete_cookie_config(name):
+    """删除指定的 Cookie"""
+    try:
+        username = get_current_user()
+        if username:
+            api_service.cookie_manager.set_cookie_file(_get_user_cookie_path())
+        api_service.cookie_manager.delete_cookie(name)
+        return APIResponse.success(None, f"Cookie [{name}] 已删除")
+    except Exception as e:
+        return APIResponse.error(f"删除失败: {str(e)}", 500)
 
 
 @app.route('/api/settings', methods=['GET'])
@@ -1589,7 +1623,7 @@ def api_files_list():
                     'size': stat.st_size,
                     'modified': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
                 })
-        return APIResponse.success({'files': files, 'dir': str(downloads_dir.absolute())}, "文件列表获取成功")
+        return APIResponse.success({'files': files}, "文件列表获取成功")
     except Exception as e:
         return APIResponse.error(f"获取文件列表失败: {str(e)}", 500)
 

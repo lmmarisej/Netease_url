@@ -85,7 +85,10 @@ class DownloadException(Exception):
 class MusicDownloader:
     """音乐下载器主类"""
     
-    def __init__(self, download_dir: str = "downloads", max_concurrent: int = 3):
+    def __init__(self, download_dir: str = None, max_concurrent: int = 3):
+        if download_dir is None:
+            import os
+            download_dir = str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'downloads')
         """
         初始化音乐下载器
         

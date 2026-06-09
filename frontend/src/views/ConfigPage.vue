@@ -46,13 +46,20 @@
         <v-btn color="primary" :loading="savingDownload" prepend-icon="mdi-content-save" @click="saveDownloadSettings">保存下载配置</v-btn>
       </v-window-item>
       <v-window-item value="cookie">
-        <v-card><v-card-title class="text-subtitle-1 font-weight-bold">Cookie 配置</v-card-title>
+        <v-card class="mb-4"><v-card-title class="d-flex align-center text-subtitle-1 font-weight-bold">Cookie 管理<v-spacer/><v-btn size="small" color="primary" prepend-icon="mdi-plus" @click="addCookieRow">新增</v-btn></v-card-title>
           <v-card-text>
-            <p class="text-caption text-medium-emphasis mb-3">粘贴网易云音乐黑胶会员 Cookie</p>
-            <v-alert :type="cookieValid?'success':'warning'" variant="tonal" density="compact" class="mb-3"><template v-if="cookieValid">已检测到有效 Cookie</template><template v-else>未检测到有效 Cookie</template></v-alert>
-            <v-textarea v-model="cookieContent" rows="6" placeholder="MUSIC_U=xxx; __csrf=xxx; ..." style="font-family:monospace;font-size:13px;" class="mb-2"/>
-            <small class="text-medium-emphasis">Cookie 保存在 config/cookie.txt</small>
-            <div class="d-flex ga-2 mt-4"><v-btn color="primary" :loading="savingCookie" prepend-icon="mdi-content-save" @click="saveCookie">保存 Cookie</v-btn><v-btn color="error" :loading="clearingCookie" prepend-icon="mdi-delete" @click="clearCookie">清空 Cookie</v-btn></div>
+            <p class="text-caption text-medium-emphasis mb-3">第一行为默认 Cookie，系统将使用默认 Cookie 进行 API 请求</p>
+            <div v-if="cookieList.length===0" class="text-caption text-medium-emphasis mb-3">暂无 Cookie，点击"新增"添加</div>
+            <v-row v-for="(c,i) in cookieList" :key="i" dense class="mb-1 align-center">
+              <v-col cols="2" class="d-flex align-center">
+                <v-icon :color="i===0?'success':'medium-emphasis'" size="16" class="mr-1">{{ i===0?'mdi-star':'mdi-circle-outline' }}</v-icon>
+                <span class="text-caption">{{ i===0?'默认':'' }}</span>
+              </v-col>
+              <v-col cols="2"><v-text-field v-model="c.name" label="名称" hide-details density="compact"/></v-col>
+              <v-col><v-text-field v-model="c.content" label="Cookie" placeholder="MUSIC_U=xxx;" hide-details density="compact" style="font-family:monospace;font-size:12px;"/></v-col>
+              <v-col cols="1"><v-btn size="x-small" icon="mdi-delete" variant="text" color="error" @click="doDeleteCookie(i)"/></v-col>
+            </v-row>
+            <div class="d-flex ga-2 mt-3"><v-btn color="primary" :loading="savingCookie" prepend-icon="mdi-content-save" @click="saveAllCookies">保存全部</v-btn></div>
           </v-card-text>
         </v-card>
       </v-window-item>
@@ -61,13 +68,13 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getSyncConfig, saveSyncConfig, getSyncStatus, triggerSyncNow, getCookie, saveCookie as apiSaveCookie, getSettings, saveSettings } from '@/api/index.js'
+import { getSyncConfig, saveSyncConfig, getSyncStatus, triggerSyncNow, getCookie, saveCookie as apiSaveCookie, activateCookie, deleteCookie, getSettings, saveSettings } from '@/api/index.js'
 const activeTab=ref('sync')
 const syncEnabled=ref(false),playlistIds=ref([]),playlistInput=ref(''),playlistLoading=ref(false),syncQuality=ref('lossless'),scheduleMode=ref('interval')
 const syncInterval=ref(3600),syncCron=ref(''),savingSync=ref(false),syncingNow=ref(false),syncRunning=ref(false),syncStatusText=ref('同步服务未启用'),syncExtra=ref('')
 const intervalOptions=[{title:'10 分钟',value:600},{title:'30 分钟',value:1800},{title:'1 小时',value:3600},{title:'2 小时',value:7200},{title:'6 小时',value:21600},{title:'12 小时',value:43200},{title:'24 小时',value:86400}]
 const downloadDir=ref('downloads'),defaultQuality=ref('lossless'),qualityInFilename=ref(true),saveLocal=ref(true),browserDownload=ref(false),savingDownload=ref(false)
-const cookieContent=ref(''),cookieValid=ref(false),savingCookie=ref(false),clearingCookie=ref(false)
+const cookieList=ref([]),savingCookie=ref(false)
 async function loadConfig(){try{const r=await getSyncConfig();if(r?.status===200&&r.data){const c=r.data;syncEnabled.value=c.enable_sync;if(c.playlist_ids){let raw=c.playlist_ids;if(typeof raw==='string')raw=raw.split(',').map(s=>s.trim()).filter(Boolean);playlistIds.value=(Array.isArray(raw)?raw:[]).map(id=>({id,name:''}))}syncQuality.value=c.sync_quality||'lossless';syncInterval.value=c.sync_interval||3600;if(c.cron_expression){scheduleMode.value='cron';syncCron.value=c.cron_expression}else scheduleMode.value='interval'}}catch(e){}}
 async function loadStatus(){try{const r=await getSyncStatus();if(r?.status===200&&r.data){const s=r.data;syncRunning.value=true;syncStatusText.value=s.running?'同步服务运行中':'同步服务已配置';let e='';if(s.last_sync)e+='上次同步: '+s.last_sync;if(s.next_sync)e+=(e?' | ':'')+'下次同步: '+s.next_sync;syncExtra.value=e}else{syncRunning.value=false;syncStatusText.value='同步服务未启用';syncExtra.value=''}}catch(e){syncRunning.value=false}}
 function addPlaylist(){const v=playlistInput.value.trim();if(!v)return window.__snackbar?.('请输入歌单ID','warning');let id=v;const m=v.match(/playlist\?id=(\d+)/);if(m)id=m[1];if(!/^\d+$/.test(id))return window.__snackbar?.('无效的歌单ID','warning');if(playlistIds.value.some(p=>p.id===id))return window.__snackbar?.('已在列表中','warning');playlistIds.value.push({id,name:''});playlistInput.value=''}
@@ -76,9 +83,10 @@ async function saveConfig(){if(syncEnabled.value&&!playlistIds.value.length)retu
 async function syncNow(){syncingNow.value=true;try{const r=await triggerSyncNow();window.__snackbar?.(r?.message||'同步已启动',r?.success?'success':'warning')}catch(e){window.__snackbar?.('同步失败','error')}finally{syncingNow.value=false}}
 async function loadDownloadSettings(){try{const r=await getSettings();if(r?.status===200&&r.data){downloadDir.value=r.data.downloads_dir||r.data.download_dir||'downloads';saveLocal.value=r.data.download_save_local!==false;browserDownload.value=r.data.download_browser===true;defaultQuality.value=r.data.download_default_quality||'lossless';qualityInFilename.value=r.data.download_quality_in_filename!==false}}catch(e){}}
 async function saveDownloadSettings(){savingDownload.value=true;try{await saveSettings({download_dir:downloadDir.value,download_save_local:saveLocal.value,download_browser:browserDownload.value,download_default_quality:defaultQuality.value,download_quality_in_filename:qualityInFilename.value});window.__snackbar?.('已保存','success')}catch(e){window.__snackbar?.('保存失败','error')}finally{savingDownload.value=false}}
-async function loadCookieConfig(){try{const r=await getCookie();if(r?.status===200&&r.data){cookieContent.value=r.data.content||r.data.cookie||'';cookieValid.value=!!(r.data.content||r.data.cookie)}}catch(e){}}
-async function saveCookie(){savingCookie.value=true;try{const r=await apiSaveCookie({cookie:cookieContent.value});window.__snackbar?.(r?.message||'已保存','success');cookieValid.value=!!cookieContent.value.trim()}catch(e){window.__snackbar?.('保存失败','error')}finally{savingCookie.value=false}}
-async function clearCookie(){if(!confirm('确定清空Cookie？'))return;clearingCookie.value=true;try{cookieContent.value='';await apiSaveCookie({cookie:''});window.__snackbar?.('已清空','success');cookieValid.value=false}catch(e){window.__snackbar?.('清空失败','error')}finally{clearingCookie.value=false}}
+async function loadCookieConfig(){try{const r=await getCookie();if(r?.status===200&&r.data){cookieList.value=r.data.cookies||[]}}catch(e){}}
+function addCookieRow(){cookieList.value.push({name:'',content:''})}
+function doDeleteCookie(i){cookieList.value.splice(i,1)}
+async function saveAllCookies(){savingCookie.value=true;try{for(const c of cookieList.value){if(!c.name.trim()||!c.content.trim())continue;await apiSaveCookie({name:c.name.trim(),cookie:c.content.trim()})}if(cookieList.value.length>0&&cookieList.value[0].name){await activateCookie(cookieList.value[0].name)}window.__snackbar?.('已保存','success');await loadCookieConfig()}catch(e){window.__snackbar?.('保存失败','error')}finally{savingCookie.value=false}}
 onMounted(()=>{loadConfig();loadStatus();loadDownloadSettings();loadCookieConfig();setInterval(loadStatus,10000)})
 </script>
 <style scoped>.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}.status-dot.on{background:#22c55e}.status-dot.off{background:#9ca3af}</style>

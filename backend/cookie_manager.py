@@ -35,18 +35,21 @@ class CookieException(Exception):
 
 
 class CookieManager:
-    """Cookie管理器主类"""
-    
-    def __init__(self, cookie_file: str = "config/cookie.txt"):
+    """Cookie管理器主类 — 支持命名 Cookie，以 JSON 格式存储"""
+
+    def __init__(self, cookie_file: str = None):
+        if cookie_file is None:
+            import os
+            cookie_file = str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'cookies.json')
         """
         初始化Cookie管理器
-        
+
         Args:
-            cookie_file: Cookie文件路径
+            cookie_file: Cookie 存储文件路径（.json 格式）
         """
         self.cookie_file = Path(cookie_file)
         self.logger = logging.getLogger(__name__)
-        
+
         # 网易云音乐相关的重要Cookie字段
         self.important_cookies = {
             'MUSIC_U',      # 用户标识
@@ -56,104 +59,174 @@ class CookieManager:
             'WEVNSM',       # 会话管理
             'WNMCID',       # 客户端标识
         }
-        
+
         # 确保cookie文件存在
         self._ensure_cookie_file_exists()
-    
+
     def set_cookie_file(self, cookie_file: str) -> None:
         """动态切换 Cookie 文件路径（用于用户维度隔离）
-        
+
         Args:
             cookie_file: 新的 Cookie 文件路径
         """
         self.cookie_file = Path(cookie_file)
         self._ensure_cookie_file_exists()
+        self._migrate_old_cookie_if_needed()
         self.logger.info(f"Cookie文件路径已切换: {self.cookie_file}")
+
+    # ==================== 命名 Cookie（JSON 存储） ====================
+
+    def _get_json_path(self) -> Path:
+        """获取 cookies.json 路径"""
+        if self.cookie_file.suffix == '.json':
+            return self.cookie_file
+        return self.cookie_file.with_suffix('.json')
+
+    def _load_cookies_json(self) -> Dict[str, Any]:
+        """加载 cookies.json"""
+        path = self._get_json_path()
+        if path.exists():
+            try:
+                import json
+                with open(path, 'r', encoding='utf-8-sig') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {'cookies': [], 'active': ''}
+
+    def _save_cookies_json(self, data: Dict[str, Any]) -> None:
+        """保存 cookies.json"""
+        import json
+        path = self._get_json_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _migrate_old_cookie_if_needed(self) -> None:
+        """如果存在旧 .txt cookie 但无 .json，自动迁移"""
+        json_path = self._get_json_path()
+        if json_path.exists():
+            return
+        if not self.cookie_file.exists():
+            return
+        content = self.cookie_file.read_text(encoding='utf-8').strip()
+        if content:
+            data = {'cookies': [{'name': '默认', 'content': content}], 'active': '默认'}
+            self._save_cookies_json(data)
+            self.logger.info("已将旧 cookie.txt 迁移到 cookies.json")
+
+    def list_cookies(self) -> List[Dict[str, str]]:
+        """获取所有命名 Cookie 列表"""
+        data = self._load_cookies_json()
+        return data.get('cookies', [])
+
+    def get_active_cookie_name(self) -> str:
+        """获取当前激活的 Cookie 名称"""
+        data = self._load_cookies_json()
+        return data.get('active', '')
+
+    def save_named_cookie(self, name: str, content: str) -> bool:
+        """保存或更新一个命名 Cookie"""
+        if not name.strip():
+            return False
+        data = self._load_cookies_json()
+        cookies = data.get('cookies', [])
+        found = False
+        for c in cookies:
+            if c['name'] == name:
+                c['content'] = content.strip()
+                found = True
+                break
+        if not found:
+            cookies.append({'name': name, 'content': content.strip()})
+        data['cookies'] = cookies
+        if not data.get('active'):
+            data['active'] = name
+        self._save_cookies_json(data)
+        self.logger.info(f"已保存 Cookie: {name}")
+        return True
+
+    def delete_cookie(self, name: str) -> bool:
+        """删除一个命名 Cookie"""
+        data = self._load_cookies_json()
+        cookies = [c for c in data.get('cookies', []) if c['name'] != name]
+        data['cookies'] = cookies
+        if data.get('active') == name:
+            data['active'] = cookies[0]['name'] if cookies else ''
+        self._save_cookies_json(data)
+        return True
+
+    def activate_cookie(self, name: str) -> bool:
+        """激活指定名称的 Cookie"""
+        data = self._load_cookies_json()
+        if any(c['name'] == name for c in data.get('cookies', [])):
+            data['active'] = name
+            self._save_cookies_json(data)
+            return True
+        return False
     
     def _ensure_cookie_file_exists(self) -> None:
-        """确保Cookie文件存在（自动创建父目录）"""
-        if not self.cookie_file.exists():
-            self.cookie_file.parent.mkdir(parents=True, exist_ok=True)
-            self.cookie_file.touch()
-            self.logger.info(f"创建Cookie文件: {self.cookie_file}")
+        """确保Cookie文件父目录存在（不自动创建文件）"""
+        self.cookie_file.parent.mkdir(parents=True, exist_ok=True)
     
     def read_cookie(self) -> str:
-        """读取Cookie文件内容
-        
+        """读取当前激活的 Cookie 内容
+
         Returns:
             Cookie字符串内容
-            
-        Raises:
-            CookieException: 读取失败时抛出
         """
         try:
-            if not self.cookie_file.exists():
-                self.logger.warning(f"Cookie文件不存在: {self.cookie_file}")
-                return ""
-            
-            content = self.cookie_file.read_text(encoding='utf-8').strip()
-            
-            if not content:
-                self.logger.warning("Cookie文件为空")
-                return ""
-            
-            self.logger.debug(f"成功读取Cookie文件，长度: {len(content)}")
-            return content
-            
-        except UnicodeDecodeError as e:
-            raise CookieException(f"Cookie文件编码错误: {e}")
-        except PermissionError as e:
-            raise CookieException(f"没有权限读取Cookie文件: {e}")
+            data = self._load_cookies_json()
+            active = data.get('active', '')
+            cookies = data.get('cookies', [])
+            for c in cookies:
+                if c['name'] == active:
+                    content = c.get('content', '')
+                    if content:
+                        self.logger.debug(f"读取 Cookie [{active}], 长度: {len(content)}")
+                        return content
+            # 回退：尝试兼容旧 txt 文件
+            if self.cookie_file.exists():
+                content = self.cookie_file.read_text(encoding='utf-8').strip()
+                if content:
+                    return content
+            return ""
+
         except Exception as e:
-            raise CookieException(f"读取Cookie文件失败: {e}")
-    
+            self.logger.warning(f"读取Cookie失败: {e}")
+            return ""
+
     def write_cookie(self, cookie_content: str) -> bool:
-        """写入Cookie到文件
-        
+        """写入Cookie（兼容旧接口，保存为"默认"命名 Cookie）
+
         Args:
             cookie_content: Cookie内容字符串
-            
+
         Returns:
             是否写入成功
-            
-        Raises:
-            CookieException: 写入失败时抛出
         """
         try:
             if not cookie_content or not cookie_content.strip():
                 raise CookieException("Cookie内容不能为空")
-            
-            # 验证Cookie格式
-            if not self.validate_cookie_format(cookie_content):
-                raise CookieException("Cookie格式无效")
-            
-            # 写入文件
-            self.cookie_file.write_text(cookie_content.strip(), encoding='utf-8')
-            
-            self.logger.info(f"成功写入Cookie到文件: {self.cookie_file}")
-            return True
-            
-        except PermissionError as e:
-            raise CookieException(f"没有权限写入Cookie文件: {e}")
+            return self.save_named_cookie('默认', cookie_content)
+
+        except CookieException:
+            raise
         except Exception as e:
             raise CookieException(f"写入Cookie文件失败: {e}")
-    
+
     def parse_cookies(self) -> Dict[str, str]:
-        """解析Cookie字符串为字典
-        
+        """解析当前激活 Cookie 为字典
+
         Returns:
             Cookie字典
-            
-        Raises:
-            CookieException: 解析失败时抛出
         """
         try:
             cookie_content = self.read_cookie()
             if not cookie_content:
                 return {}
-            
             return self.parse_cookie_string(cookie_content)
-            
+
         except Exception as e:
             raise CookieException(f"解析Cookie失败: {e}")
     

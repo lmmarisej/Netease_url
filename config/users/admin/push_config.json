@@ -5,9 +5,10 @@
       "content": "下载完成",
       "enabled": true,
       "event_template": {
-        "content": "歌曲《{song_name}》下载完成\n歌手：{artist}\n音质：{quality}\n文件大小：{file_size}",
         "title": "下载完成 - {song_name}",
-        "type": "text"
+        "content": "歌曲《{song_name}》下载完成\n歌手：{artist}\n音质：{quality}\n文件大小：{file_size}",
+        "type": "text",
+        "__tplId": "tpl_download_done"
       },
       "events": [
         "download.completed"
@@ -21,6 +22,30 @@
           "enabled": true,
           "id": "p1780842340052_s3l96d",
           "url": "http://192.168.31.132:818/api/push/d52240d9214c4106a1998b033d258b60f"
+        }
+      ]
+    },
+    {
+      "id": "p1781013975385_7bokz1",
+      "name": "下载完成提示",
+      "title": "",
+      "content": "",
+      "type": "text",
+      "enabled": true,
+      "events": [
+        "sync.completed"
+      ],
+      "event_template": {
+        "title": "歌单同步完成",
+        "content": "同步任务完成\n成功：{success_count}/{total_count}\n共下载：{total_synced} 首歌曲",
+        "type": "text",
+        "__tplId": "tpl_sync_done"
+      },
+      "urls": [
+        {
+          "id": "p1781013975386_eiak7l",
+          "url": "http://192.168.31.132:818/api/push/d52240d9214c4106a1998b033d258b60f",
+          "enabled": true
         }
       ]
     }
