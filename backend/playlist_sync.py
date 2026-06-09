@@ -37,25 +37,16 @@ class PlaylistSyncConfig:
         sync_interval: int = 3600,
         cron_expression: Optional[str] = None,
         download_dir: str = "downloads",
-        max_concurrent: int = 3
+        max_concurrent: int = 3,
+        cookie_file: Optional[str] = None
     ):
-        """
-        初始化同步配置
-        
-        Args:
-            playlist_ids: 需要同步的歌单ID列表
-            quality: 下载音质 (standard/exhigh/lossless/hires/sky/jyeffect/jymaster)
-            sync_interval: 同步间隔（秒），默认3600秒（1小时）
-            cron_expression: Cron表达式，如果设置则优先使用
-            download_dir: 下载目录
-            max_concurrent: 最大并发下载数
-        """
         self.playlist_ids = playlist_ids
         self.quality = quality
         self.sync_interval = sync_interval
         self.cron_expression = cron_expression
         self.download_dir = download_dir
         self.max_concurrent = max_concurrent
+        self.cookie_file = cookie_file
 
 
 class PlaylistSyncService:
@@ -70,7 +61,9 @@ class PlaylistSyncService:
         """
         self.config = config
         self.logger = self._setup_logger()
-        self.cookie_manager = CookieManager()
+        self.cookie_manager = CookieManager(
+            cookie_file=config.cookie_file if config.cookie_file else None
+        )
         self.downloader = MusicDownloader(
             download_dir=config.download_dir,
             max_concurrent=config.max_concurrent

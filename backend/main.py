@@ -162,7 +162,8 @@ class MusicAPIService:
                     quality=self.config.sync_quality,
                     sync_interval=self.config.sync_interval,
                     cron_expression=self.config.cron_expression if self.config.cron_expression else None,
-                    download_dir=self.config.downloads_dir
+                    download_dir=self.config.downloads_dir,
+                    cookie_file=_get_user_cookie_path() if get_current_user() else None
                 )
                 self.sync_service = init_sync_service(sync_config)
                 self.logger.info(f"定时同步服务已配置，歌单数量: {len(self.config.playlist_ids)}")
