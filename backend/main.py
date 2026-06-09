@@ -1127,7 +1127,8 @@ def _fetch_and_save_lyric(music_id, song_info, cookies, safe_filename='', downlo
         # 导出 .lrc 文件到歌曲同目录（受 download_lyric_save_lrc 配置控制）
         if config.download_lyric_save_lrc and safe_filename and download_dir:
             from lyrics_db import save_lrc_file
-            save_lrc_file(Path(download_dir), safe_filename, original_lyric, translated_lyric)
+            lrc_stem = ''.join(c for c in f"{artist_name} - {safe_filename}" if c not in r'<>:"/\|?*')
+            save_lrc_file(Path(download_dir), lrc_stem, original_lyric, translated_lyric)
         api_service.logger.debug(f"歌词已保存到 SQLite: {music_id} - {song_data.get('name', '')}")
     except Exception as e:
         api_service.logger.warning(f"保存歌词到 SQLite 失败 (song_id={music_id}): {e}")
@@ -1247,13 +1248,14 @@ def download_music_api():
                 'download_url': url_data['url']
             }
             
-            # 生成安全文件名
+            # 生成安全文件名（与 music_downloader.py 保持一致：艺术家 - 歌曲名 [音质]）
             quality_labels = {'standard':'标准','exhigh':'极高','lossless':'无损','hires':'Hi-Res','sky':'环绕声','jyeffect':'高清环绕','jymaster':'母带'}
             include_quality = getattr(config, 'download_quality_in_filename', True)
+            base_name = f"{artist_name} - {music_info['name']}"
             if include_quality:
-                safe_name = f"{music_info['name']} [{quality_labels.get(actual_quality, actual_quality)}]"
+                safe_name = f"{base_name} [{quality_labels.get(actual_quality, actual_quality)}]"
             else:
-                safe_name = music_info['name']
+                safe_name = base_name
             safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
             filename = f"{safe_name}.{music_info['file_type']}"
             download_url = music_info['download_url']
