@@ -9,7 +9,6 @@
   "max_file_size": 524288000,
   "request_timeout": 30,
   "cors_origins": "*",
-  "cookie_file": "config/cookie.txt",
   "enable_sync": false,
   "playlist_ids": [],
   "sync_quality": "lossless",

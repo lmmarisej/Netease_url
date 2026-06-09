@@ -7,22 +7,13 @@ echo "║   网易云音乐工具箱 - Docker 部署   ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# [1/3] 编译前端
-echo "[1/3] 编译前端 Vue 应用..."
-cd "$SCRIPT_DIR/frontend"
-npm run build
-cd "$SCRIPT_DIR"
-
-# [2/3] 构建并启动 Docker
-echo ""
-echo "[2/3] 构建 Docker 镜像并启动..."
+# [1/2] 构建并启动 Docker（含前端编译）
+echo "[1/2] 构建 Docker 镜像并启动..."
 docker-compose up --build -d
 
-# [3/3] 检查容器状态
+# [2/2] 检查容器状态
 echo ""
-echo "[3/3] 检查容器状态..."
+echo "[2/2] 检查容器状态..."
 docker-compose ps
 
 echo ""

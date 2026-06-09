@@ -1,3 +1,12 @@
+# ============ 阶段1：编译前端 ============
+FROM docker.m.daocloud.io/library/node:20-alpine AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ============ 阶段2：运行后端 ============
 FROM docker.m.daocloud.io/library/python:3.12-slim
 WORKDIR /app
 
@@ -8,7 +17,7 @@ RUN pip install --no-cache-dir \
 
 COPY backend/ ./backend/
 COPY config/ ./config/
-COPY frontend/dist/ ./frontend/dist/
+COPY --from=frontend-builder /frontend/dist/ ./frontend/dist/
 
 RUN mkdir -p /app/logs /app/downloads
 
