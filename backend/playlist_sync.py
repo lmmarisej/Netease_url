@@ -555,6 +555,7 @@ class PlaylistSyncService:
                         lrc = dup.with_suffix('.lrc')
                         if lrc.exists():
                             lrc.unlink()
+                            self.logger.info(f"MD5 去重 - 已删除对应歌词: {lrc.name}")
                         deleted += 1
                     except Exception as e:
                         self.logger.warning(f"删除重复文件失败 {dup.name}: {e}")

@@ -8,7 +8,7 @@
       <v-card-text class="d-flex align-center flex-wrap ga-4 py-3">
         <span class="text-body-2 text-medium-emphasis">{{ dirInfo }}</span>
         <v-switch v-model="audioOnly" label="仅音频" hide-details color="primary" />
-        <v-text-field v-model="extFilter" label="扩展名过滤" hide-details style="max-width:160px;" placeholder="如 yml" clearable />
+        <v-text-field v-model="extFilter" label="文件名搜索" hide-details style="max-width:200px;" placeholder="如 .mp3 或 歌曲名" clearable />
         <v-checkbox v-model="ignoreCase" label="忽略大小写" hide-details />
         <v-btn variant="tonal" prepend-icon="mdi-refresh" @click="loadFiles">刷新</v-btn>
         <v-spacer />
@@ -68,7 +68,7 @@ const editDialog=ref(false),editingFilename=ref(''),editContent=ref('')
 const confirmDelete=ref(false),deleteTargets=ref([])
 const headers=[{title:'文件名',key:'name',sortable:true},{title:'大小',key:'size',sortable:true},{title:'修改时间',key:'modified',sortable:true},{title:'操作',key:'actions',sortable:false,width:200}]
 const dirInfo=computed(()=>`📂 downloads/ (${filteredFiles.value.length}/${files.value.length} 个文件)`)
-const filteredFiles=computed(()=>{let r=files.value;if(audioOnly.value)r=r.filter(f=>/\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name));if(extFilter.value.trim()){const e=extFilter.value.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');r=r.filter(f=>new RegExp('\\.'+e+'$',ignoreCase.value?'i':'').test(f.name))}return r})
+const filteredFiles=computed(()=>{let r=files.value;if(audioOnly.value)r=r.filter(f=>/\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name));if(extFilter.value.trim()){const e=extFilter.value.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');r=r.filter(f=>new RegExp(e,ignoreCase.value?'i':'').test(f.name))}return r})
 function formatSize(b){if(!b)return'0 KB';return b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB'}
 function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}
 function isTextFile(n){return !isAudio(n)&&!/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(n)}
