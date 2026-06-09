@@ -165,7 +165,8 @@ class MusicAPIService:
                     sync_interval=self.config.sync_interval,
                     cron_expression=self.config.cron_expression if self.config.cron_expression else None,
                     download_dir=str(_get_user_downloads_path()),
-                    cookie_file=_get_user_cookie_path() if get_current_user() else None
+                    cookie_file=_get_user_cookie_path() if get_current_user() else None,
+                    sync_full_delete=getattr(self.config, 'sync_full_delete', False)
                 )
                 self.sync_service = init_sync_service(sync_config)
                 self.logger.info(f"定时同步服务已配置，歌单数量: {len(self.config.playlist_ids)}")
@@ -185,6 +186,7 @@ class MusicAPIService:
             self.config.sync_quality = new_config.get('sync_quality', 'lossless')
             self.config.sync_interval = int(new_config.get('sync_interval', 3600))
             self.config.cron_expression = new_config.get('cron_expression', '')
+            self.config.sync_full_delete = new_config.get('sync_full_delete', False)
             
             # 保存到JSON文件
             save_sync_config_to_file({
@@ -192,7 +194,8 @@ class MusicAPIService:
                 'playlist_ids': playlist_ids,
                 'sync_quality': self.config.sync_quality,
                 'sync_interval': self.config.sync_interval,
-                'cron_expression': self.config.cron_expression
+                'cron_expression': self.config.cron_expression,
+                'sync_full_delete': self.config.sync_full_delete
             })
             
             # 重新初始化同步服务
@@ -1524,7 +1527,8 @@ def get_sync_config():
                 'playlist_ids': config.playlist_ids,
                 'sync_quality': config.sync_quality,
                 'sync_interval': config.sync_interval,
-                'cron_expression': config.cron_expression or ''
+                'cron_expression': config.cron_expression or '',
+                'sync_full_delete': getattr(config, 'sync_full_delete', False)
             }
         return APIResponse.success(config_data, "获取同步配置成功")
     except Exception as e:

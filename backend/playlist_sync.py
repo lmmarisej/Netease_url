@@ -39,7 +39,8 @@ class PlaylistSyncConfig:
         cron_expression: Optional[str] = None,
         download_dir: str = "downloads",
         max_concurrent: int = 3,
-        cookie_file: Optional[str] = None
+        cookie_file: Optional[str] = None,
+        sync_full_delete: bool = False
     ):
         self.playlist_ids = playlist_ids
         self.quality = quality
@@ -315,12 +316,18 @@ class PlaylistSyncService:
             
             self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 跳过(历史) {skipped_by_history} 首, 跳过(本地) {skipped_by_local} 首, 失败 {failed_count} 首")
 
+            # 完全同步模式：删除本地多余文件（不在远程歌单中的）
+            deleted_count = 0
+            if getattr(self.config, 'sync_full_delete', False) and tracks:
+                deleted_count = self._delete_extra_local_files(tracks, playlist_name)
+
             fire_event(EventType.SYNC_PLAYLIST_COMPLETED, {
                 'playlist_id': playlist_id,
                 'playlist_name': playlist_name,
                 'total_tracks': len(tracks),
                 'synced_count': synced_count,
                 'failed_count': failed_count,
+                'deleted_count': deleted_count,
             }, source='playlist_sync', async_mode=True)
             
             return {
@@ -330,6 +337,7 @@ class PlaylistSyncService:
                 'total_tracks': len(tracks),
                 'synced_count': synced_count,
                 'failed_count': failed_count,
+                'deleted_count': deleted_count,
                 'sync_time': datetime.now().isoformat()
             }
             
@@ -484,6 +492,59 @@ class PlaylistSyncService:
         except Exception as e:
             self.logger.warning(f"补全歌词失败 ({song_name}): {e}")
     
+    def _delete_extra_local_files(self, tracks: list, playlist_name: str) -> int:
+        """完全同步模式：删除本地存在但远程歌单中不存在的音频文件
+        
+        Args:
+            tracks: 远程歌单的歌曲列表
+            playlist_name: 歌单名称
+            
+        Returns:
+            删除的文件数量
+        """
+        deleted = 0
+        try:
+            # 构建远程歌曲的文件名主干集合
+            remote_stems = set()
+            for track in tracks:
+                artists = track.get('artists', '未知艺术家')
+                song_name = track.get('name', '')
+                stem = self._build_expected_stem(artists, song_name)
+                remote_stems.add(stem)
+            
+            # 扫描本地目录，找出不在远程集合中的音频文件
+            download_dir = Path(self.config.download_dir)
+            if not download_dir.exists():
+                return 0
+            
+            for f in download_dir.iterdir():
+                if not f.is_file():
+                    continue
+                ext = f.suffix.lower()
+                if ext not in ('.mp3', '.flac', '.m4a', '.wav', '.ogg'):
+                    continue
+                
+                local_stem = self._sanitize_for_match(f.stem)
+                if local_stem not in remote_stems:
+                    try:
+                        f.unlink()
+                        self.logger.info(f"完全同步 - 已删除本地多余文件: {f.name}")
+                        # 同时删除对应的 .lrc 文件
+                        lrc_path = f.with_suffix('.lrc')
+                        if lrc_path.exists():
+                            lrc_path.unlink()
+                            self.logger.debug(f"已删除对应歌词文件: {lrc_path.name}")
+                        deleted += 1
+                    except Exception as e:
+                        self.logger.warning(f"删除文件失败 {f.name}: {e}")
+            
+            if deleted > 0:
+                self.logger.info(f"完全同步 - 共删除 {deleted} 个本地多余文件")
+        except Exception as e:
+            self.logger.error(f"完全同步删除逻辑异常: {e}")
+        
+        return deleted
+
     def _save_sync_history(self, sync_results: List[Dict[str, Any]]):
         """保存同步历史记录"""
         try:

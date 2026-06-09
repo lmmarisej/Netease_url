@@ -74,6 +74,16 @@
           </v-card-text>
         </v-card>
 
+        <v-card class="mb-4">
+          <v-card-text class="d-flex align-center justify-space-between">
+            <div>
+              <div class="text-subtitle-1 font-weight-bold">完全同步模式</div>
+              <span class="text-caption text-medium-emphasis">开启后删除本地在远程歌单中不存在的文件（⚠ 谨慎使用）</span>
+            </div>
+            <v-switch v-model="syncFullDelete" color="error" hide-details class="flex-shrink-0" />
+          </v-card-text>
+        </v-card>
+
         <div class="d-flex ga-3 mb-4">
           <v-btn color="primary" :loading="savingSync" prepend-icon="mdi-content-save" @click="saveConfig">保存同步配置</v-btn>
           <v-btn color="warning" :loading="syncingNow" prepend-icon="mdi-refresh" @click="syncNow">立即同步一次</v-btn>
@@ -97,6 +107,7 @@ const syncInterval = ref(3600)
 const syncCron = ref('')
 const savingSync = ref(false)
 const syncingNow = ref(false)
+const syncFullDelete = ref(false)
 const syncRunning = ref(false)
 const syncStatusText = ref('同步服务未启用')
 const syncExtra = ref('')
@@ -124,6 +135,7 @@ async function loadConfig() {
       }
       syncQuality.value = c.sync_quality || 'lossless'
       syncInterval.value = c.sync_interval || 3600
+      syncFullDelete.value = c.sync_full_delete || false
       if (c.cron_expression) {
         scheduleMode.value = 'cron'
         syncCron.value = c.cron_expression
@@ -181,6 +193,7 @@ async function saveConfig() {
       sync_quality: syncQuality.value,
       sync_interval: syncInterval.value,
       cron_expression: scheduleMode.value === 'cron' ? syncCron.value.trim() : '',
+      sync_full_delete: syncFullDelete.value,
     })
     window.__snackbar?.(r?.message || '已保存', 'success')
     await loadStatus()
