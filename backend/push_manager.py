@@ -36,7 +36,7 @@ def _load_push_config() -> Dict[str, Any]:
     """加载推送配置（用户专属）"""
     config_path = _get_push_config_path()
     if Path(config_path).exists():
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, 'r', encoding='utf-8-sig') as f:
             return json.load(f)
     return {'pushes': []}
 

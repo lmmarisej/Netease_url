@@ -1,0 +1,7 @@
+{
+    "download_default_quality":  "exhigh",
+    "download_browser":  true,
+    "downloads_dir":  "downloads",
+    "download_save_local":  true,
+    "download_quality_in_filename":  true
+}

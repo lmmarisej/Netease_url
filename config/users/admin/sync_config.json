@@ -1,0 +1,9 @@
+{
+  "enable_sync": true,
+  "playlist_ids": [
+    "123243715"
+  ],
+  "sync_quality": "standard",
+  "sync_interval": 3600,
+  "cron_expression": ""
+}

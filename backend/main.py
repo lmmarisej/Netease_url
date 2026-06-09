@@ -29,6 +29,9 @@ from threading import Thread
 # 将 backend/ 目录添加到 Python 路径，以支持模块导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 项目根目录
+_PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__))).parent
+
 try:
     from music_api import (
         NeteaseAPI, APIException, QualityLevel,
@@ -218,7 +221,7 @@ class MusicAPIService:
             
             # 文件处理器（单个日志文件最大 2MB，保留 3 个备份）
             try:
-                logs_dir = Path('logs')
+                logs_dir = _PROJECT_ROOT / 'logs'
                 logs_dir.mkdir(exist_ok=True)
                 log_max_size = 2 * 1024 * 1024  # 2MB
                 file_handler = RotatingFileHandler(
@@ -249,9 +252,11 @@ class MusicAPIService:
             self.logger.error(f"Cookie处理异常: {e}")
             return {}
     
-    def _extract_music_id(self, id_or_url: str) -> str:
-        """提取音乐ID"""
+    def _extract_music_id(self, id_or_url) -> str:
+        """提取音乐ID，兼容 int 和 str 类型"""
         try:
+            # 统一转为字符串
+            id_or_url = str(id_or_url)
             # 处理短链接
             if '163cn.tv' in id_or_url:
                 import requests
@@ -328,36 +333,59 @@ def _get_user_sync_config_path() -> str:
     username = get_current_user()
     if username:
         return str(get_user_config_path(username, 'sync_config.json'))
-    return str(Path('config') / 'sync_config.json')
+    return str(_PROJECT_ROOT / 'config' / 'sync_config.json')
 
 
 def _get_user_settings_path() -> str:
     username = get_current_user()
     if username:
         return str(get_user_config_path(username, 'settings.json'))
-    return str(Path('config') / 'settings.json')
+    return str(_PROJECT_ROOT / 'config' / 'settings.json')
 
 
 def _get_user_push_config_path() -> str:
     username = get_current_user()
     if username:
         return str(get_user_config_path(username, 'push_config.json'))
-    return str(Path('config') / 'push_config.json')
+    return str(_PROJECT_ROOT / 'config' / 'push_config.json')
 
 
 def _get_user_cookie_path() -> str:
     username = get_current_user()
     if username:
         return str(get_user_config_path(username, 'cookie.txt'))
-    return str(Path('config') / 'cookie.txt')
+    # 回退到共享配置
+    return str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'cookie.txt')
 
 
-SYNC_CONFIG_FILE = str(Path('config') / 'sync_config.json')
-SETTINGS_CONFIG_FILE = str(Path('config') / 'settings.json')
+def _get_user_downloads_path() -> Path:
+    """获取用户专属下载目录路径"""
+    username = get_current_user()
+    if username:
+        p = get_user_downloads_dir(username)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    return Path(config.downloads_dir)
+
+
+SYNC_CONFIG_FILE = str(_PROJECT_ROOT / 'config' / 'sync_config.json')
+SETTINGS_CONFIG_FILE = str(_PROJECT_ROOT / 'config' / 'settings.json')
 
 
 def load_sync_config_from_file() -> Dict[str, Any]:
-    """从JSON文件加载同步配置"""
+    """从JSON文件加载同步配置（优先用户专属）"""
+    # 优先加载用户专属配置
+    username = get_current_user()
+    if username:
+        user_path = Path(_get_user_sync_config_path())
+        if user_path.exists():
+            try:
+                import json
+                with open(user_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    # 回退到共享配置
     config_path = Path(SYNC_CONFIG_FILE)
     if config_path.exists():
         try:
@@ -370,10 +398,14 @@ def load_sync_config_from_file() -> Dict[str, Any]:
 
 
 def save_sync_config_to_file(config_data: Dict[str, Any]) -> bool:
-    """保存同步配置到JSON文件"""
+    """保存同步配置到JSON文件（用户专属）"""
     try:
         import json
-        config_path = Path(SYNC_CONFIG_FILE)
+        username = get_current_user()
+        if username:
+            config_path = Path(_get_user_sync_config_path())
+        else:
+            config_path = Path(SYNC_CONFIG_FILE)
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=2)
         return True
@@ -387,7 +419,7 @@ def _setup_operation_logger():
     op_logger = logging.getLogger('operation')
     op_logger.setLevel(logging.INFO)
     if not op_logger.handlers:
-        logs_dir = Path('logs')
+        logs_dir = _PROJECT_ROOT / 'logs'
         logs_dir.mkdir(exist_ok=True)
         handler = RotatingFileHandler(
             str(logs_dir / 'operation.log'),
@@ -571,7 +603,7 @@ def api_docs_json():
     """API 文档 JSON 端点"""
     try:
         import json
-        config_path = Path('config') / 'api.json'
+        config_path = _PROJECT_ROOT / 'config' / 'api.json'
         if not config_path.exists():
             return APIResponse.error("API 配置文件不存在", 404)
         with open(config_path, 'r', encoding='utf-8') as f:
@@ -586,7 +618,7 @@ def api_docs_json():
 def api_logs():
     """日志内容 API——支持指定文件名，返回最近 1000 行（倒序）"""
     try:
-        logs_dir = Path('logs')
+        logs_dir = _PROJECT_ROOT / 'logs'
         logs_dir.mkdir(exist_ok=True)
 
         # 获取日志文件列表
@@ -636,7 +668,7 @@ def api_logs():
 def api_logs_cleanup():
     """清理日志文件——清空所有 .log 文件内容"""
     try:
-        logs_dir = Path('logs')
+        logs_dir = _PROJECT_ROOT / 'logs'
         logs_dir.mkdir(exist_ok=True)
 
         cleaned = []
@@ -972,8 +1004,7 @@ def download_music_api():
         # 读取下载配置
         save_local = config.download_save_local
         browser_download = config.download_browser
-        download_dir = Path(config.downloads_dir)
-        download_dir.mkdir(parents=True, exist_ok=True)
+        download_dir = _get_user_downloads_path()
         
         # 参数验证
         validation_error = api_service._validate_request_params({'music_id': music_id})
@@ -1176,7 +1207,8 @@ def download_music_api():
                         local_f.close()
 
             resp = Response(stream_with_context(stream_proxy()), mimetype=f"audio/{music_info['file_type']}")
-            resp.headers['Content-Disposition'] = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename, safe='')}"
+            # 使用 RFC 5987 编码避免中文文件名 latin-1 编码错误
+            resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
             resp.headers['X-Download-Filename'] = quote(filename, safe='')
             return resp
 
@@ -1235,6 +1267,7 @@ def api_info():
 def get_sync_config():
     """获取同步配置"""
     try:
+        # 优先读取用户专属配置
         file_config = load_sync_config_from_file()
         if file_config:
             config_data = file_config
@@ -1279,10 +1312,22 @@ def get_sync_status():
     """获取定时同步状态"""
     try:
         sync_service = get_sync_service()
-        
+
+        # 即使服务未初始化，也返回配置信息
         if not sync_service:
-            return APIResponse.error("定时同步服务未启用", 400)
-        
+            file_config = load_sync_config_from_file()
+            return APIResponse.success({
+                'service_running': False,
+                'job_count': 0,
+                'config': {
+                    'playlist_ids': file_config.get('playlist_ids', config.playlist_ids),
+                    'quality': file_config.get('sync_quality', config.sync_quality),
+                    'sync_interval': file_config.get('sync_interval', config.sync_interval),
+                    'cron_expression': file_config.get('cron_expression', config.cron_expression or ''),
+                    'download_dir': str(config.downloads_dir)
+                }
+            }, "同步服务未运行（配置已保存）")
+
         status = sync_service.get_sync_status()
         return APIResponse.success(status, "获取同步状态成功")
         
@@ -1316,8 +1361,13 @@ def trigger_sync_now():
 
 @app.route('/api/cookie', methods=['GET'])
 def get_cookie_config():
-    """获取Cookie配置信息"""
+    """获取Cookie配置信息（用户专属）"""
     try:
+        # 切换到用户专属 cookie 文件
+        username = get_current_user()
+        if username:
+            user_cookie = _get_user_cookie_path()
+            api_service.cookie_manager.set_cookie_file(user_cookie)
         cookie_info = api_service.cookie_manager.get_cookie_info()
         cookie_content = api_service.cookie_manager.read_cookie()
         return APIResponse.success({
@@ -1332,8 +1382,13 @@ def get_cookie_config():
 
 @app.route('/api/cookie', methods=['POST'])
 def save_cookie_config():
-    """保存Cookie配置"""
+    """保存Cookie配置（用户专属）"""
     try:
+        # 切换到用户专属 cookie 文件
+        username = get_current_user()
+        if username:
+            user_cookie = _get_user_cookie_path()
+            api_service.cookie_manager.set_cookie_file(user_cookie)
         data = api_service._safe_get_request_data()
         cookie_content = (data.get('cookie') or data.get('content') or '').strip()
 
@@ -1517,8 +1572,7 @@ def start_api_server():
 def api_files_list():
     """获取下载目录文件列表"""
     try:
-        downloads_dir = Path(config.downloads_dir)
-        downloads_dir.mkdir(exist_ok=True)
+        downloads_dir = _get_user_downloads_path()
         files = []
         for f in sorted(downloads_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
             if f.is_file():
@@ -1541,9 +1595,9 @@ def api_files_delete():
         filename = data.get('filename', '').strip()
         if not filename:
             return APIResponse.error("文件名不能为空", 400)
-        file_path = Path(config.downloads_dir) / filename
+        file_path = _get_user_downloads_path() / filename
         # 安全检查：确保文件在 downloads 目录内
-        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+        if not file_path.resolve().is_relative_to(_get_user_downloads_path().resolve()):
             return APIResponse.error("非法文件路径", 403)
         if not file_path.exists():
             return APIResponse.error("文件不存在", 404)
@@ -1558,8 +1612,9 @@ def api_files_delete():
 def api_files_stream(filename):
     """流式传输文件（用于音频播放和下载）"""
     try:
-        file_path = (Path(config.downloads_dir) / filename).resolve()
-        if not file_path.is_relative_to(Path(config.downloads_dir).resolve()):
+        downloads_dir = _get_user_downloads_path()
+        file_path = (downloads_dir / filename).resolve()
+        if not file_path.is_relative_to(downloads_dir.resolve()):
             return APIResponse.error("非法文件路径", 403)
         if not file_path.exists():
             return APIResponse.error("文件不存在", 404)
@@ -1583,8 +1638,8 @@ def api_files_stream(filename):
 def api_files_read(filename):
     """读取文本文件内容"""
     try:
-        file_path = Path(config.downloads_dir) / filename
-        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+        file_path = _get_user_downloads_path() / filename
+        if not file_path.resolve().is_relative_to(_get_user_downloads_path().resolve()):
             return APIResponse.error("非法文件路径", 403)
         if not file_path.exists():
             return APIResponse.error("文件不存在", 404)
@@ -1604,8 +1659,8 @@ def api_files_save():
         content = data.get('content', '')
         if not filename:
             return APIResponse.error("文件名不能为空", 400)
-        file_path = Path(config.downloads_dir) / filename
-        if not file_path.resolve().is_relative_to(Path(config.downloads_dir).resolve()):
+        file_path = _get_user_downloads_path() / filename
+        if not file_path.resolve().is_relative_to(_get_user_downloads_path().resolve()):
             return APIResponse.error("非法文件路径", 403)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
@@ -1626,7 +1681,7 @@ if __name__ == '__main__':
     # 加载 config/settings.json（优先级最高）
     def load_settings_json() -> Dict[str, Any]:
         """从 config/settings.json 加载项目配置"""
-        settings_path = Path('config') / 'settings.json'
+        settings_path = _PROJECT_ROOT / 'config' / 'settings.json'
         if settings_path.exists():
             try:
                 with open(settings_path, 'r', encoding='utf-8') as f:

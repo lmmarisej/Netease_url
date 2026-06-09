@@ -1,40 +1,13 @@
-import axios from 'axios'
+import { createAuthAxios } from './authAxios.js'
 
-const api = axios.create({
-  baseURL: '/',
-  timeout: 120000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
+// ==================== 主 API 实例（自动提取 .data） ====================
 
-// Request interceptor: 自动附加 Token
-api.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  error => Promise.reject(error)
-)
+const api = createAuthAxios()
 
-// Response interceptor: 401 时自动跳转登录页
+// 主实例额外：自动提取 response.data
 api.interceptors.response.use(
   response => response.data,
-  error => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('username')
-      // 避免在登录页重复跳转
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
-      }
-    }
-    const message = error.response?.data?.message || error.message || '请求失败'
-    return Promise.reject(new Error(message))
-  }
+  undefined  // 保留已有的 401 处理
 )
 
 // ==================== 认证相关 ====================
@@ -66,8 +39,8 @@ export function getAlbum(params) {
 }
 
 export function downloadMusic(params, options = {}) {
-  // 对于二进制下载，使用原始 axios 实例避免拦截器提取 .data
-  const instance = axios.create({ baseURL: '/', timeout: 120000 })
+  // 使用独立实例（不提取 .data），但共享认证拦截器
+  const instance = createAuthAxios()
   return instance.post('/api/download', params, { responseType: 'blob', ...options })
 }
 
@@ -128,7 +101,12 @@ export function saveFile(data) {
 }
 
 export function getFileStreamUrl(filename, download = false) {
-  return `/api/files/stream/${encodeURIComponent(filename)}${download ? '?download=1' : ''}`
+  const token = localStorage.getItem('token') || ''
+  const params = new URLSearchParams()
+  if (download) params.set('download', '1')
+  if (token) params.set('token', token)
+  const qs = params.toString()
+  return `/api/files/stream/${encodeURIComponent(filename)}${qs ? '?' + qs : ''}`
 }
 
 // ==================== 任务管理 ====================

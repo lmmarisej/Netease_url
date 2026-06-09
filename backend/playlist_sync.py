@@ -104,7 +104,7 @@ class PlaylistSyncService:
             
             # 文件处理器（单个日志文件最大 2MB，保留 3 个备份）
             try:
-                logs_dir = Path('logs')
+                logs_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'logs'
                 logs_dir.mkdir(exist_ok=True)
                 log_file = logs_dir / 'playlist_sync.log'
                 file_handler = RotatingFileHandler(

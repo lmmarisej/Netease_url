@@ -60,6 +60,16 @@ class CookieManager:
         # 确保cookie文件存在
         self._ensure_cookie_file_exists()
     
+    def set_cookie_file(self, cookie_file: str) -> None:
+        """动态切换 Cookie 文件路径（用于用户维度隔离）
+        
+        Args:
+            cookie_file: 新的 Cookie 文件路径
+        """
+        self.cookie_file = Path(cookie_file)
+        self._ensure_cookie_file_exists()
+        self.logger.info(f"Cookie文件路径已切换: {self.cookie_file}")
+    
     def _ensure_cookie_file_exists(self) -> None:
         """确保Cookie文件存在（自动创建父目录）"""
         if not self.cookie_file.exists():

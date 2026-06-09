@@ -157,7 +157,8 @@ const audioPlayer = ref(null)
 
 async function playAudio(fn) {
   playerFilename.value = fn
-  playerUrl.value = '/api/files/stream/' + encodeURIComponent(fn)
+  const token = localStorage.getItem('token') || ''
+  playerUrl.value = '/api/files/stream/' + encodeURIComponent(fn) + '?token=' + encodeURIComponent(token)
   await nextTick()
   await nextTick()
   if (audioPlayer.value) {
