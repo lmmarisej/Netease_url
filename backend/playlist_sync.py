@@ -195,9 +195,10 @@ class PlaylistSyncService:
         # 记录同步总结
         success_count = sum(1 for r in sync_results if r['success'])
         total_synced = sum(r.get('synced_count', 0) for r in sync_results)
+        total_replaced = sum(r.get('replaced_count', 0) for r in sync_results)
         
         self.logger.info("="*60)
-        self.logger.info(f"同步完成: 成功 {success_count}/{len(sync_results)}, 共下载 {total_synced} 首歌曲")
+        self.logger.info(f"同步完成: 成功 {success_count}/{len(sync_results)}, 共下载 {total_synced} 首, 音质替换 {total_replaced} 首")
         self.logger.info("="*60)
         
         # MD5 去重模式
@@ -220,6 +221,7 @@ class PlaylistSyncService:
                 'success_count': success_count,
                 'total_count': len(sync_results),
                 'total_synced': total_synced,
+                'total_replaced': total_replaced,
                 'deleted_count': deleted_count,
             }, source='playlist_sync', async_mode=True)
         else:
@@ -227,13 +229,15 @@ class PlaylistSyncService:
                 'success_count': success_count,
                 'total_count': len(sync_results),
                 'total_synced': total_synced,
+                'total_replaced': total_replaced,
                 'deleted_count': deleted_count,
                 'error': f"{len(sync_results) - success_count} 个歌单同步失败",
             }, source='playlist_sync', async_mode=True)
         
-        # 在结果中附加删除数
+        # 在结果中附加删除数和替换数
         for r in sync_results:
             r['deleted_count'] = deleted_count
+            r.setdefault('replaced_count', 0)
         
         return sync_results
     
@@ -272,14 +276,15 @@ class PlaylistSyncService:
             
             # 获取已存在的歌曲列表（同步历史 + 本地文件扫描）
             existing_songs = self._get_existing_songs()
-            local_stems = self._get_local_file_stems()
-            self.logger.info(f"本地已有音频文件: {len(local_stems)} 个")
+            local_stems, local_stem_extensions = self._get_local_file_stems()
+            self.logger.info(f"本地已有音频文件: {len(local_stems)} 个主干")
             
             # 下载新歌曲
             synced_count = 0
             failed_count = 0
             skipped_by_history = 0
             skipped_by_local = 0
+            replaced_count = 0  # 因音质变更替换的文件数
             
             for i, track in enumerate(tracks, 1):
                 try:
@@ -298,12 +303,22 @@ class PlaylistSyncService:
                     # 检查本地是否已有文件（差集比对，无需 API 调用）
                     expected_stem = self._build_expected_stem(artists, song_name)
                     if expected_stem in local_stems:
-                        self.logger.info(f"[{i}/{len(tracks)}] 跳过(本地已有): {song_name} - {artists}")
-                        existing_songs.add(song_id)  # 同步到历史记录
-                        skipped_by_local += 1
-                        # 补全歌词（DB + .lrc）
-                        self._ensure_lyrics(song_id, song_name, artists, cookies, expected_stem)
-                        continue
+                        # 检查现有文件的扩展名是否匹配当前音质
+                        expected_ext = self._expected_ext_for_quality(self.config.quality)
+                        existing_exts = local_stem_extensions.get(expected_stem, set())
+                        if expected_ext in existing_exts:
+                            self.logger.info(f"[{i}/{len(tracks)}] 跳过(本地已有): {song_name} - {artists}")
+                            existing_songs.add(song_id)  # 同步到历史记录
+                            skipped_by_local += 1
+                            # 补全歌词（DB + .lrc）
+                            self._ensure_lyrics(song_id, song_name, artists, cookies, expected_stem)
+                            continue
+                        else:
+                            # 文件存在但扩展名不匹配 → 删除旧音质文件，重新下载
+                            self.logger.info(f"[{i}/{len(tracks)}] 音质变更({existing_exts} → {expected_ext}): {song_name} - {artists}")
+                            self._delete_files_by_stem(expected_stem, existing_exts)
+                            replaced_count += 1
+                            # 继续走到下载逻辑（不 continue）
                     
                     # 下载歌曲
                     self.logger.info(f"[{i}/{len(tracks)}] 下载: {song_name} - {artists}")
@@ -336,7 +351,7 @@ class PlaylistSyncService:
                     self.logger.error(f"下载歌曲失败: {e}")
                     continue
             
-            self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 跳过(历史) {skipped_by_history} 首, 跳过(本地) {skipped_by_local} 首, 失败 {failed_count} 首")
+            self.logger.info(f"歌单 '{playlist_name}' 同步完成: 新增 {synced_count} 首, 替换(音质变更) {replaced_count} 首, 跳过(历史) {skipped_by_history} 首, 跳过(本地) {skipped_by_local} 首, 失败 {failed_count} 首")
 
             # 收集本歌单所有远程歌曲文件名主干
             remote_stems = set()
@@ -351,6 +366,7 @@ class PlaylistSyncService:
                 'playlist_name': playlist_name,
                 'total_tracks': len(tracks),
                 'synced_count': synced_count,
+                'replaced_count': replaced_count,
                 'failed_count': failed_count,
                 'remote_track_count': len(remote_stems),
             }, source='playlist_sync', async_mode=True)
@@ -361,6 +377,7 @@ class PlaylistSyncService:
                 'success': True,
                 'total_tracks': len(tracks),
                 'synced_count': synced_count,
+                'replaced_count': replaced_count,
                 'failed_count': failed_count,
                 'sync_time': datetime.now().isoformat(),
                 'remote_stems': remote_stems
@@ -411,19 +428,21 @@ class PlaylistSyncService:
     def _get_local_file_stems(self) -> Set[str]:
         """扫描下载目录，获取所有本地文件的文件名主干（不含扩展名）
         
-        一次性扫描整个 downloads 目录，返回小写文件名主干的集合，
-        用于与歌单歌曲进行批量差集比对，避免逐曲目的文件系统检查。
+        一次性扫描整个 downloads 目录，返回 (stems, stem_extensions) 元组：
+        - stems: 小写文件名主干集合（含去音质标签版本）
+        - stem_extensions: Dict[str, Set[str]] 每个主干对应的扩展名集合（仅原始主干）
         
         同时去除音质标签（如 [无损]、[Hi-Res]）后的主干也加入集合，
         以便匹配不同路径下载的文件。
         
         Returns:
-            小写文件名主干集合
+            (小写文件名主干集合, 主干→扩展名映射)
         """
         stems = set()
+        stem_extensions: Dict[str, Set[str]] = {}
         try:
             if not self.downloads_path.exists():
-                return stems
+                return stems, stem_extensions
 
             # 音质标签正则：匹配 [xxx] 模式
             import re
@@ -435,14 +454,58 @@ class PlaylistSyncService:
                     if suffix in ('.mp3', '.flac', '.m4a', '.wav', '.ogg', '.wma'):
                         stem = entry.stem.lower()
                         stems.add(stem)
+                        # 记录原始主干的扩展名
+                        if stem not in stem_extensions:
+                            stem_extensions[stem] = set()
+                        stem_extensions[stem].add(suffix)
                         # 同时加入去除音质标签的版本
                         stripped = quality_tag_pattern.sub('', stem).strip()
                         if stripped != stem:
                             stems.add(stripped)
+                            # 将 stripped 主干的扩展名也合并到原始表中
+                            if stripped not in stem_extensions:
+                                stem_extensions[stripped] = set()
+                            stem_extensions[stripped].add(suffix)
         except Exception as e:
             self.logger.warning(f"扫描本地文件失败: {e}")
         
-        return stems
+        return stems, stem_extensions
+    
+    def _expected_ext_for_quality(self, quality: str) -> str:
+        """根据音质等级返回预期的文件扩展名
+        
+        Args:
+            quality: 音质等级（standard, exhigh, lossless, hires 等）
+            
+        Returns:
+            预期扩展名（如 '.flac', '.mp3'）
+        """
+        # 无损及高音质 → flac；标准音质 → mp3
+        lossless_qualities = {'lossless', 'hires', 'sky', 'jyeffect', 'jymaster', 'dolby'}
+        if quality in lossless_qualities:
+            return '.flac'
+        return '.mp3'
+    
+    def _delete_files_by_stem(self, stem: str, exts: Set[str]):
+        """删除下载目录中匹配主干和扩展名的所有文件（含对应的 .lrc 文件）
+        
+        Args:
+            stem: 文件名主干（小写）
+            exts: 要删除的扩展名集合
+        """
+        try:
+            for ext in exts:
+                file_path = self.downloads_path / f"{stem}{ext}"
+                if file_path.exists():
+                    file_path.unlink()
+                    self.logger.info(f"已删除旧音质文件: {file_path.name}")
+                # 同时删除对应的 .lrc 歌词文件
+                lrc_path = self.downloads_path / f"{stem}.lrc"
+                if lrc_path.exists():
+                    lrc_path.unlink()
+                    self.logger.info(f"已删除旧歌词文件: {lrc_path.name}")
+        except Exception as e:
+            self.logger.warning(f"删除旧文件失败 (stem={stem}): {e}")
     
     def _build_expected_stem(self, artists: str, song_name: str) -> str:
         """根据艺术家和歌曲名构建预期的文件名主干

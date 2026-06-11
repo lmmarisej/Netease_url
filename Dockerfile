@@ -10,34 +10,28 @@ RUN npm run build
 FROM docker.m.daocloud.io/library/python:3.12-slim
 WORKDIR /app
 
+# 1. 优先安装依赖（利用缓存）
 COPY requirements.txt .
 RUN pip install --no-cache-dir \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     -r requirements.txt
 
+# 2. 复制后端代码并备份默认配置
 COPY backend/ ./backend/
 COPY config/ ./config/
+
+RUN cp -r /app/config /app/config_defaults && \
+    mkdir -p /app/logs /app/downloads
+
+# 3. 复制前端静态文件
 COPY --from=frontend-builder /frontend/dist/ ./frontend/dist/
 
-# 备份默认配置（供 volume 挂载后首次启动使用）
-RUN cp -r /app/config /app/config_defaults
+# 4. 【修改这里】直接复制独立的启动脚本
+COPY entrypoint.sh /entrypoint.sh
 
-RUN mkdir -p /app/logs /app/downloads
-
-# 启动脚本：如果挂载的 config 目录为空，则从默认配置恢复
-RUN printf '#!/bin/bash\n\
-for f in /app/config_defaults/*.json; do\n\
-  name=$(basename "$f")\n\
-  if [ ! -f "/app/config/$name" ]; then\n\
-    cp "$f" "/app/config/$name"\n\
-  fi\n\
-done\n\
-if [ ! -d "/app/config/users" ]; then\n\
-  cp -r /app/config_defaults/users /app/config/users 2>/dev/null || true\n\
-fi\n\
-exec python3 backend/main.py\n\
-' > /entrypoint.sh && chmod +x /entrypoint.sh
+# 赋权并加一道防线：万一你以后不小心又把 entrypoint.sh 变成了 CRLF，这行命令会自动修复它
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENV TZ=Asia/Shanghai
 EXPOSE 5000
-CMD ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]

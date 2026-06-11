@@ -1,6 +1,7 @@
 services:
-  netease-music-toolbox:
-    image: lmmarisej-netease_url
+  # 侧重于工具属性：网易云音乐下载器/工具箱
+  lmmarisej-netease-music-toolbox:
+    container_name: netease-music-toolbox
     build:
       context: .
       dockerfile: Dockerfile
