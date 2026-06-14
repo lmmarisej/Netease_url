@@ -1197,7 +1197,7 @@ def download_music_api():
 
             # 获取音乐下载链接（支持音质降级）
             task_manager.update_task(task.task_id, message='正在获取下载链接...', progress=30)
-            quality_order = ['jymaster', 'dolby', 'sky', 'jyeffect', 'hires', 'lossless', 'exhigh', 'higher', 'standard']
+            quality_order = ['jymaster', 'sky', 'jyeffect', 'hires', 'lossless', 'exhigh', 'standard']
             actual_quality = quality
             url_info = None
 

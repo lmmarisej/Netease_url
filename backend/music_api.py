@@ -655,20 +655,9 @@ class QRLoginManager:
 
 # 向后兼容的函数接口
 def url_v1(song_id: int, level: str, cookies: Dict[str, str]) -> Dict[str, Any]:
-    """获取歌曲下载URL（使用新版 /song/download/url/v1 接口）
-    
-    新版接口支持更高音质下载：
-    - 免费歌曲(fee==0) 可获取 Hi-Res 音质
-    - VIP 歌曲可获取无损音质
-    """
+    """获取歌曲URL（向后兼容）"""
     api = NeteaseAPI()
-    result = api.get_song_download_url(song_id, level, cookies)
-    # 新接口返回格式与旧接口不同，需要适配为统一的 data 数组格式
-    # 新接口返回: {"code":200, "data":{"id":..., "url":..., "type":..., "size":...}}
-    # 旧接口返回: {"code":200, "data":[{"id":..., "url":..., "type":..., "size":...}]}
-    if result.get('data') and not isinstance(result.get('data'), list):
-        result['data'] = [result['data']]
-    return result
+    return api.get_song_url(song_id, level, cookies)
 
 
 def name_v1(song_id: int) -> Dict[str, Any]:

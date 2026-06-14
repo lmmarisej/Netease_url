@@ -135,26 +135,37 @@ class MusicDownloader:
         
         return filename or "unknown"
     
-    def _determine_file_extension(self, url: str, content_type: str = "") -> str:
-        """根据URL和Content-Type确定文件扩展名
+    def _determine_file_extension(self, url: str, content_type: str = "",
+                                  api_type: str = "") -> str:
+        """根据API类型、URL和Content-Type确定文件扩展名
+        
+        优先级：API返回的type字段 > URL路径 > Content-Type > 默认mp3
         
         Args:
             url: 下载URL
             content_type: HTTP Content-Type头
+            api_type: API返回的type字段（如 flac, mp3, m4a）
             
         Returns:
-            文件扩展名
+            文件扩展名（含点号，如 .flac）
         """
-        # 首先尝试从URL获取
-        if '.flac' in url.lower():
+        # 优先使用 API 返回的 type 字段
+        if api_type:
+            api_type_lower = api_type.lower().strip('.')
+            if api_type_lower in ('flac', 'mp3', 'm4a', 'wav', 'aac', 'ogg'):
+                return f".{api_type_lower}"
+        
+        # 其次尝试从URL获取
+        url_lower = url.lower()
+        if '.flac' in url_lower:
             return '.flac'
-        elif '.mp3' in url.lower():
+        elif '.mp3' in url_lower:
             return '.mp3'
-        elif '.m4a' in url.lower():
+        elif '.m4a' in url_lower:
             return '.m4a'
         
         # 从Content-Type获取
-        content_type = content_type.lower()
+        content_type = (content_type or "").lower()
         if 'flac' in content_type:
             return '.flac'
         elif 'mpeg' in content_type or 'mp3' in content_type:
@@ -181,8 +192,8 @@ class MusicDownloader:
             # 获取cookies
             cookies = self.cookie_manager.parse_cookies()
             
-            # 获取音乐下载URL（使用新版 /song/download/url/v1 接口）
-            url_result = self.api.get_song_download_url(music_id, quality, cookies)
+            # 获取音乐URL信息
+            url_result = self.api.get_song_url(music_id, quality, cookies)
             if not url_result.get('data') or not url_result['data']:
                 raise DownloadException(f"无法获取音乐ID {music_id} 的播放链接")
             
@@ -253,8 +264,8 @@ class MusicDownloader:
             filename = f"{music_info.artists} - {music_info.name}"
             safe_filename = self._sanitize_filename(filename)
             
-            # 确定文件扩展名
-            file_ext = self._determine_file_extension(music_info.download_url)
+            # 确定文件扩展名（优先使用API返回的type字段）
+            file_ext = self._determine_file_extension(music_info.download_url, api_type=music_info.file_type)
             file_path = self.download_dir / f"{safe_filename}{file_ext}"
             
             # 检查文件是否已存在
@@ -330,8 +341,8 @@ class MusicDownloader:
             filename = f"{music_info.artists} - {music_info.name}"
             safe_filename = self._sanitize_filename(filename)
             
-            # 确定文件扩展名
-            file_ext = self._determine_file_extension(music_info.download_url)
+            # 确定文件扩展名（优先使用API返回的type字段）
+            file_ext = self._determine_file_extension(music_info.download_url, api_type=music_info.file_type)
             file_path = self.download_dir / f"{safe_filename}{file_ext}"
             
             # 检查文件是否已存在
