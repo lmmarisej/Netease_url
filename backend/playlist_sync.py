@@ -711,10 +711,18 @@ class PlaylistSyncService:
             # 读取同步历史
             if self.sync_history_file.exists():
                 import json
-                with open(self.sync_history_file, 'r', encoding='utf-8') as f:
-                    history = json.load(f)
-                    status['last_sync'] = history.get('last_sync_time')
-                    status['total_synced_songs'] = len(history.get('synced_songs', []))
+                try:
+                    with open(self.sync_history_file, 'r', encoding='utf-8') as f:
+                        history = json.load(f)
+                        status['last_sync'] = history.get('last_sync_time')
+                        status['total_synced_songs'] = len(history.get('synced_songs', []))
+                except (json.JSONDecodeError, ValueError) as e:
+                    self.logger.warning(f"同步历史文件损坏，将重置: {e}")
+                    # 删除损坏的文件，下次同步时会重新生成
+                    try:
+                        self.sync_history_file.unlink()
+                    except Exception:
+                        pass
             
             return status
             
