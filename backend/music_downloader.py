@@ -181,8 +181,8 @@ class MusicDownloader:
             # 获取cookies
             cookies = self.cookie_manager.parse_cookies()
             
-            # 获取音乐URL信息
-            url_result = self.api.get_song_url(music_id, quality, cookies)
+            # 获取音乐下载URL（使用新版 /song/download/url/v1 接口）
+            url_result = self.api.get_song_download_url(music_id, quality, cookies)
             if not url_result.get('data') or not url_result['data']:
                 raise DownloadException(f"无法获取音乐ID {music_id} 的播放链接")
             

@@ -25,13 +25,14 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 class QualityLevel(Enum):
     """音质等级枚举"""
     STANDARD = "standard"      # 标准音质
+    HIGHER = "higher"          # 较高音质
     EXHIGH = "exhigh"          # 极高音质
     LOSSLESS = "lossless"      # 无损音质
     HIRES = "hires"            # Hi-Res音质
     SKY = "sky"                # 沉浸环绕声
     JYEFFECT = "jyeffect"      # 高清环绕声
     JYMASTER = "jymaster"      # 超清母带
-    DOLBY = "dolby"      # 杜比全景声
+    DOLBY = "dolby"            # 杜比全景声
 
 
 # 常量定义
@@ -43,6 +44,7 @@ class APIConstants:
     
     # API URLs
     SONG_URL_V1 = "https://interface3.music.163.com/eapi/song/enhance/player/url/v1"
+    SONG_DOWNLOAD_URL_V1 = "https://interface3.music.163.com/eapi/song/download/url/v1"
     SONG_DETAIL_V3 = "https://interface3.music.163.com/api/v3/song/detail"
     LYRIC_API = "https://interface3.music.163.com/api/song/lyric"
     SEARCH_API = 'https://music.163.com/api/cloudsearch/pc'
@@ -194,6 +196,45 @@ class NeteaseAPI:
             return result
         except (json.JSONDecodeError, KeyError) as e:
             raise APIException(f"解析响应数据失败: {e}")
+    
+    def get_song_download_url(self, song_id: int, quality: str, cookies: Dict[str, str]) -> Dict[str, Any]:
+        """获取歌曲下载URL（新版 /song/download/url/v1）
+        
+        与旧版 /song/enhance/player/url/v1 的区别：
+        - 旧版是试听链接，非VIP只能获取标准/极高音质
+        - 新版是下载链接，免费歌曲(fee==0)可获取Hi-Res，VIP歌曲可获取无损
+        
+        Args:
+            song_id: 歌曲ID
+            quality: 音质等级 (standard, higher, exhigh, lossless, hires, sky, jyeffect, jymaster, dolby)
+            cookies: 用户cookies
+            
+        Returns:
+            包含歌曲下载URL信息的字典
+            
+        Raises:
+            APIException: API调用失败时抛出
+        """
+        try:
+            payload = {
+                'id': song_id,
+                'level': quality,
+            }
+            
+            params = self.crypto_utils.encrypt_params(APIConstants.SONG_DOWNLOAD_URL_V1, payload)
+            response_text = self.http_client.post_request(APIConstants.SONG_DOWNLOAD_URL_V1, params, cookies)
+            
+            result = json.loads(response_text)
+            if result.get('code') != 200:
+                raise APIException(f"获取歌曲下载URL失败: {result.get('message', '未知错误')}")
+            
+            # 归一化格式：新接口返回 {"data": {...}}，转为旧接口兼容的 {"data": [{...}]}
+            if result.get('data') and not isinstance(result.get('data'), list):
+                result['data'] = [result['data']]
+            
+            return result
+        except (json.JSONDecodeError, KeyError) as e:
+            raise APIException(f"解析下载响应数据失败: {e}")
     
     def get_song_detail(self, song_id: int) -> Dict[str, Any]:
         """获取歌曲详细信息
@@ -614,9 +655,20 @@ class QRLoginManager:
 
 # 向后兼容的函数接口
 def url_v1(song_id: int, level: str, cookies: Dict[str, str]) -> Dict[str, Any]:
-    """获取歌曲URL（向后兼容）"""
+    """获取歌曲下载URL（使用新版 /song/download/url/v1 接口）
+    
+    新版接口支持更高音质下载：
+    - 免费歌曲(fee==0) 可获取 Hi-Res 音质
+    - VIP 歌曲可获取无损音质
+    """
     api = NeteaseAPI()
-    return api.get_song_url(song_id, level, cookies)
+    result = api.get_song_download_url(song_id, level, cookies)
+    # 新接口返回格式与旧接口不同，需要适配为统一的 data 数组格式
+    # 新接口返回: {"code":200, "data":{"id":..., "url":..., "type":..., "size":...}}
+    # 旧接口返回: {"code":200, "data":[{"id":..., "url":..., "type":..., "size":...}]}
+    if result.get('data') and not isinstance(result.get('data'), list):
+        result['data'] = [result['data']]
+    return result
 
 
 def name_v1(song_id: int) -> Dict[str, Any]:
