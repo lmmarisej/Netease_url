@@ -9,6 +9,7 @@
 """
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -17,6 +18,8 @@ from functools import wraps
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from flask import request, g
+
+logger = logging.getLogger('music_api')
 
 # ==================== 项目根目录 ====================
 
@@ -97,9 +100,20 @@ def verify_credentials(username: str, password: str) -> bool:
     """
     users = load_users()
     stored_password = users.get(username)
+    
+    # 调试日志：打印输入的和已有的用户名密码
+    logger.info(f"[登录验证] 输入用户名: '{username}', 输入密码: '{password}'")
+    logger.info(f"[登录验证] 已有用户列表: {list(users.keys())}")
     if stored_password is None:
+        logger.warning(f"[登录验证] 用户 '{username}' 不存在，已有用户: {list(users.keys())}")
         return False
-    return stored_password == password
+    if stored_password != password:
+        logger.warning(
+            f"[登录验证] 密码不匹配 - 用户名: '{username}', "
+            f"输入密码: '{password}', 已有密码: '{stored_password}'"
+        )
+        return False
+    return True
 
 
 # ==================== Token 管理 ====================
