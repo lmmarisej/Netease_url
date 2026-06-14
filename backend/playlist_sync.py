@@ -325,7 +325,8 @@ class PlaylistSyncService:
                     
                     download_result = self.downloader.download_music_file(
                         music_id=song_id,
-                        quality=self.config.quality
+                        quality=self.config.quality,
+                        cookies=cookies
                     )
                     
                     if download_result.success:

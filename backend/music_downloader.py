@@ -175,12 +175,14 @@ class MusicDownloader:
         
         return '.mp3'  # 默认
     
-    def get_music_info(self, music_id: int, quality: str = "standard") -> MusicInfo:
+    def get_music_info(self, music_id: int, quality: str = "standard",
+                       cookies: Dict[str, str] = None) -> MusicInfo:
         """获取音乐详细信息
         
         Args:
             music_id: 音乐ID
             quality: 音质等级
+            cookies: 用户cookies字典，为None时自动从CookieManager读取
             
         Returns:
             音乐信息对象
@@ -189,8 +191,9 @@ class MusicDownloader:
             DownloadException: 获取信息失败时抛出
         """
         try:
-            # 获取cookies
-            cookies = self.cookie_manager.parse_cookies()
+            # 获取cookies（优先使用传入的，否则从CookieManager读取）
+            if cookies is None:
+                cookies = self.cookie_manager.parse_cookies()
             
             # 获取音乐URL信息
             url_result = self.api.get_song_url(music_id, quality, cookies)
@@ -245,20 +248,22 @@ class MusicDownloader:
             raise DownloadException(f"获取音乐信息时发生错误: {e}")
     
     def download_music_file(self, music_id: int, quality: str = "standard",
-                            username: str = None) -> DownloadResult:
+                            username: str = None,
+                            cookies: Dict[str, str] = None) -> DownloadResult:
         """下载音乐文件到本地
         
         Args:
             music_id: 音乐ID
             quality: 音质等级
             username: 当前用户名（用于歌词数据库隔离）
+            cookies: 用户cookies字典，为None时自动从CookieManager读取
             
         Returns:
             下载结果对象
         """
         try:
             # 获取音乐信息
-            music_info = self.get_music_info(music_id, quality)
+            music_info = self.get_music_info(music_id, quality, cookies=cookies)
             
             # 生成文件名
             filename = f"{music_info.artists} - {music_info.name}"
