@@ -1,0 +1,294 @@
+/* ============================================================
+   Apple HIG 风格主题层 — 全局重写 Vuetify 3 组件外观
+   清晰 / 尊重内容 / 层次 / 一致性
+   ============================================================ */
+
+:root {
+  --apple-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif;
+
+  /* 8pt 间距栅格 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 同心圆角 */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-2xl: 24px;
+  --r-full: 9999px;
+
+  /* Apple 缓动 */
+  --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --dur-fast: 0.18s;
+  --dur-normal: 0.28s;
+
+  /* 阴影（柔和、低对比） */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---------- 全局排版 ---------- */
+.v-application {
+  font-family: var(--apple-font) !important;
+  letter-spacing: -0.01em;
+}
+
+.v-application .text-h4 { font-weight: 700; letter-spacing: -0.02em; }
+.v-application .text-h5 { font-weight: 700; letter-spacing: -0.02em; }
+.v-application .text-h6 { font-weight: 600; letter-spacing: -0.01em; }
+.v-application .font-weight-bold { font-weight: 600 !important; }
+
+/* ---------- 卡片：柔和阴影 + 大圆角 ---------- */
+.v-card {
+  border-radius: var(--r-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  border: 1px solid rgba(120, 120, 128, 0.12);
+  transition: box-shadow var(--dur-normal) var(--ease-default),
+    transform var(--dur-normal) var(--ease-default);
+}
+.v-theme--dark .v-card {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+/* 作为"分组背景"的扁平卡（搜索栏等） */
+.v-card.v-card--variant-flat {
+  box-shadow: none !important;
+}
+
+/* 对话框卡片：弹出阴影 */
+.v-overlay__content > .v-card {
+  border-radius: var(--r-xl) !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+
+/* ---------- 按钮：胶囊 + 按压回弹 ---------- */
+.v-btn {
+  font-family: var(--apple-font) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  text-transform: none !important;
+  border-radius: var(--r-full) !important;
+  transition: transform var(--dur-fast) var(--ease-default),
+    opacity var(--dur-fast) var(--ease-default),
+    background-color var(--dur-fast) var(--ease-default) !important;
+}
+.v-btn:not(.v-btn--icon):not(.v-btn--block) {
+  padding-inline: 20px;
+}
+.v-btn--size-large { min-height: 48px; }
+.v-btn.v-btn--variant-elevated,
+.v-btn.v-btn--variant-flat {
+  box-shadow: none !important;
+}
+.v-btn:hover { opacity: 0.92; }
+.v-btn:active { transform: scale(0.97); }
+/* 图标按钮回正方形圆角更克制 */
+.v-btn.v-btn--icon {
+  border-radius: var(--r-full) !important;
+}
+
+/* 分段控件（音质 v-btn-toggle）→ iOS Segmented Control */
+.v-btn-group,
+.v-btn-toggle {
+  border-radius: var(--r-md) !important;
+  background: rgba(120, 120, 128, 0.12);
+  padding: 3px;
+  gap: 2px;
+  border: none !important;
+}
+.v-theme--dark .v-btn-toggle {
+  background: rgba(120, 120, 128, 0.24);
+}
+.v-btn-toggle .v-btn {
+  border-radius: var(--r-sm) !important;
+  border: none !important;
+  font-weight: 500 !important;
+  min-height: 30px;
+}
+.v-btn-toggle .v-btn--active {
+  background: rgb(var(--v-theme-surface)) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+  font-weight: 600 !important;
+}
+
+/* ---------- 输入框：填充式圆角 ---------- */
+.v-field {
+  border-radius: var(--r-md) !important;
+  font-family: var(--apple-font) !important;
+}
+.v-field.v-field--variant-solo-filled {
+  box-shadow: none !important;
+  background: rgba(120, 120, 128, 0.1) !important;
+}
+.v-theme--dark .v-field.v-field--variant-solo-filled {
+  background: rgba(120, 120, 128, 0.2) !important;
+}
+.v-field.v-field--focused {
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.25) !important;
+}
+
+/* ---------- Chip：胶囊柔和 ---------- */
+.v-chip {
+  border-radius: var(--r-full) !important;
+  font-weight: 500 !important;
+}
+
+/* ---------- Tabs → iOS 下划线/胶囊混合，更轻 ---------- */
+.v-tabs {
+  --v-tabs-height: 40px;
+}
+.v-tab {
+  text-transform: none !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  border-radius: var(--r-sm) !important;
+  min-width: auto !important;
+}
+.v-tab__slider {
+  border-radius: var(--r-full);
+  height: 3px;
+}
+
+/* ---------- 顶栏：毛玻璃 ---------- */
+.v-app-bar.v-toolbar {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.18) !important;
+  box-shadow: none !important;
+}
+.v-theme--dark .v-app-bar.v-toolbar {
+  background: rgba(28, 28, 30, 0.72) !important;
+  border-bottom: 0.5px solid rgba(84, 84, 88, 0.5) !important;
+}
+.v-toolbar-title {
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- 侧边导航：半透明 + 选中胶囊高亮 ---------- */
+.v-navigation-drawer {
+  background: rgba(245, 245, 247, 0.8) !important;
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-right: 0.5px solid rgba(60, 60, 67, 0.18) !important;
+}
+.v-theme--dark .v-navigation-drawer {
+  background: rgba(28, 28, 30, 0.85) !important;
+  border-right: 0.5px solid rgba(84, 84, 88, 0.5) !important;
+}
+.v-navigation-drawer .v-list-item {
+  border-radius: var(--r-md) !important;
+  min-height: 42px;
+  margin-bottom: 2px;
+  transition: background-color var(--dur-fast) var(--ease-default);
+}
+.v-navigation-drawer .v-list-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.v-navigation-drawer .v-list-item--active {
+  background: rgba(0, 122, 255, 0.12) !important;
+  color: rgb(var(--v-theme-primary)) !important;
+  font-weight: 600;
+}
+.v-navigation-drawer .v-list-item--active .v-list-item-title {
+  font-weight: 600;
+}
+
+/* ---------- 列表行（歌曲/曲目）分隔线内缩 ---------- */
+.track-item.border-b,
+.border-b {
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.18) !important;
+}
+.v-theme--dark .track-item.border-b,
+.v-theme--dark .border-b {
+  border-bottom: 0.5px solid rgba(84, 84, 88, 0.5) !important;
+}
+.track-item {
+  border-radius: var(--r-md);
+  transition: background-color var(--dur-fast) var(--ease-default);
+}
+.track-item:hover {
+  background: rgba(120, 120, 128, 0.08);
+}
+
+/* ---------- 歌曲卡 hover 浮起 ---------- */
+.song-card {
+  border-radius: var(--r-lg) !important;
+  cursor: default;
+}
+.song-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-pop) !important;
+}
+
+/* ---------- Snackbar / Alert 圆角 ---------- */
+.v-snackbar__wrapper {
+  border-radius: var(--r-md) !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+.v-alert { border-radius: var(--r-md) !important; }
+
+/* ---------- 底部播放器栏：毛玻璃 ---------- */
+.v-footer.v-footer--fixed,
+.v-footer {
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* ---------- 进度条圆角 ---------- */
+.v-progress-linear { border-radius: var(--r-full) !important; overflow: hidden; }
+
+/* ---------- 表格/数据行 hover ---------- */
+.v-table tbody tr:hover {
+  background: rgba(120, 120, 128, 0.08) !important;
+}
+
+/* ---------- 滚动条：纤细 Apple 风 ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 128, 0.4) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 128, 0.4);
+  border-radius: var(--r-full);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 128, 0.6);
+}
+
+/* ---------- 页面切换淡入更柔 ---------- */
+.v-enter-active,
+.v-leave-active { transition: opacity var(--dur-normal) var(--ease-default); }
+
+/* ---------- 全局可见焦点环（键盘可访问性） ---------- */
+/* 键盘聚焦时统一焦点环；鼠标点击（非 :focus-visible）不显示，避免视觉噪声 */
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary)) !important;
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 减弱动效（可访问性） ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

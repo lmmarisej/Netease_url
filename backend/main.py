@@ -38,6 +38,11 @@ try:
         url_v1, name_v1, lyric_v1, search_music,
         playlist_detail, album_detail
     )
+    from qq_music_api import (
+        QQMusicAPI, QQAPIException,
+        qq_search_music, qq_song_detail, qq_song_url, qq_lyric,
+        map_quality_to_qq,
+    )
     from cookie_manager import CookieManager, CookieException
     from music_downloader import MusicDownloader, DownloadException, AudioFormat
     from playlist_sync import PlaylistSyncConfig, PlaylistSyncService, init_sync_service, get_sync_service
@@ -372,6 +377,35 @@ def _get_user_cookie_path() -> str:
         return str(get_user_config_path(username, 'cookies.json'))
     # 回退到共享配置
     return str(Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'cookies.json')
+
+
+def _get_user_qq_cookie_path() -> Path:
+    """获取QQ音乐Cookie存储路径（按用户隔离）"""
+    username = get_current_user()
+    if username:
+        return get_user_config_path(username, 'qq_cookie.json')
+    return Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'qq_cookie.json'
+
+
+def _read_qq_cookie() -> str:
+    """读取当前用户配置的QQ音乐Cookie字符串，未配置返回空串"""
+    try:
+        path = _get_user_qq_cookie_path()
+        if path.exists():
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            return (data.get('content') or '').strip()
+    except Exception as e:
+        api_service.logger.warning(f"读取QQ音乐Cookie失败: {e}")
+    return ''
+
+
+def _write_qq_cookie(content: str) -> None:
+    """写入当前用户的QQ音乐Cookie字符串"""
+    path = _get_user_qq_cookie_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'content': (content or '').strip()}, f, ensure_ascii=False, indent=2)
 
 
 def _get_user_downloads_path() -> Path:
@@ -993,6 +1027,7 @@ def search_music_api():
         limit = int(data.get('limit', 30))
         offset = int(data.get('offset', 0))
         search_type = data.get('type', '1')  # 1-歌曲, 10-专辑, 100-歌手, 1000-歌单
+        source = (data.get('source') or 'netease').strip().lower()  # netease / qq
         
         # 参数验证
         validation_error = api_service._validate_request_params({'keyword': keyword})
@@ -1003,18 +1038,26 @@ def search_music_api():
         if limit > 100:
             limit = 100
         
-        cookies = api_service._get_cookies()
-        result = search_music(keyword, cookies, limit)
+        if source == 'qq':
+            # QQ音乐音源搜索（携带用户配置的QQ Cookie以获取完整结果）
+            result = qq_search_music(keyword, limit, cookie=_read_qq_cookie())
+        else:
+            source = 'netease'
+            cookies = api_service._get_cookies()
+            result = search_music(keyword, cookies, limit)
         
         # search_music返回的是歌曲列表，需要包装成前端期望的格式
         if result:
             for song in result:
+                # 标注音源，便于前端区分
+                song.setdefault('source', source)
                 # 添加艺术家字符串（如果需要）
                 if 'artists' in song:
                     song['artist_string'] = song['artists']
         
         fire_event(EventType.SEARCH_PERFORMED, {
             'keyword': keyword,
+            'source': source,
             'result_count': len(result) if result else 0,
         }, source='api')
         return APIResponse.success(result, "搜索完成")
@@ -1138,6 +1181,162 @@ def _fetch_and_save_lyric(music_id, song_info, cookies, safe_filename='', downlo
         api_service.logger.warning(f"保存歌词到 SQLite 失败 (song_id={music_id}): {e}")
 
 
+def _download_qq_music(songmid, quality, save_local, browser_download, download_dir):
+    """QQ音乐音源下载处理
+
+    Args:
+        songmid: QQ音乐 songmid
+        quality: 统一音质命名（standard/exhigh/lossless/...）
+        save_local: 是否保存到本地
+        browser_download: 是否浏览器下载
+        download_dir: 下载目录(Path)
+
+    Returns:
+        Flask 响应对象
+    """
+    qq_cookie = _read_qq_cookie()
+    qq_api = QQMusicAPI(qq_cookie)
+    task = task_manager.create_task('download', '下载中...', music_id=songmid, quality=quality)
+
+    fire_event(EventType.DOWNLOAD_STARTED, {
+        'music_id': songmid,
+        'quality': quality,
+        'source': 'qq',
+        'task_id': task.task_id,
+    }, source='api', async_mode=True)
+
+    try:
+        task_manager.update_task(task.task_id, status=TaskStatus.RUNNING, message='正在获取歌曲信息...', progress=10)
+        detail = qq_api.get_song_detail(songmid)
+        song_name = detail.get('name', 'unknown')
+        artist_name = detail.get('artists', '')
+
+        # 获取下载链接（按映射音质并自动降级）
+        task_manager.update_task(task.task_id, message='正在获取下载链接...', progress=30)
+        qq_quality = map_quality_to_qq(quality)
+        url_info = qq_api.get_song_url(songmid, qq_quality)
+        download_url = url_info.get('url')
+        if not download_url:
+            hint = '版权限制或无该音质' if qq_cookie else '需要在「Cookie 管理」中配置 QQ音乐登录 Cookie'
+            task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='无法获取下载链接', error=hint)
+            return APIResponse.error(f"无法获取QQ音乐下载链接（{hint}）", 404)
+
+        actual_quality = url_info.get('quality', qq_quality)
+        file_ext = url_info.get('ext', '.mp3')
+
+        task_manager.update_task(task.task_id, name=song_name, extra={
+            'artist': artist_name,
+            'album': detail.get('album', ''),
+            'quality': actual_quality,
+            'source': 'qq',
+        })
+
+        # 生成安全文件名（与网易云保持风格一致：艺术家 - 歌曲名 [音质]）
+        qq_quality_labels = {'128': '标准', '320': '极高', 'flac': '无损', 'master': '母带'}
+        include_quality = getattr(config, 'download_quality_in_filename', True)
+        base_name = f"{artist_name} - {song_name}"
+        if include_quality:
+            safe_name = f"{base_name} [QQ-{qq_quality_labels.get(actual_quality, actual_quality)}]"
+        else:
+            safe_name = base_name
+        safe_name = ''.join(c for c in safe_name if c not in r'<>:"/\|?*')
+        filename = f"{safe_name}{file_ext}"
+
+        qq_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
+            'Referer': 'https://y.qq.com/',
+        }
+
+        # 模式 3: 仅保存到本地，后台下载 + JSON 通知
+        if save_local and not browser_download:
+            file_path = download_dir / filename
+            if file_path.exists():
+                task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='文件已存在', progress=100)
+                operation_logger.info(f"[音乐下载] 音源=QQ MID={songmid} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (文件已存在)")
+                fire_event(EventType.DOWNLOAD_COMPLETED, {
+                    'music_id': songmid, 'song_name': song_name, 'artist': artist_name,
+                    'quality': actual_quality, 'source': 'qq', 'mode': 'local_only',
+                }, source='api', async_mode=True)
+            else:
+                task_manager.update_task(task.task_id, message='正在后台下载...', progress=50)
+
+                def _bg_download():
+                    try:
+                        r = requests.get(download_url, headers=qq_headers, stream=True, timeout=60)
+                        r.raise_for_status()
+                        with open(file_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
+                        operation_logger.info(f"[音乐下载] 音源=QQ MID={songmid} 歌名={song_name} 歌手={artist_name} 音质={actual_quality} (仅本地)")
+                        fire_event(EventType.DOWNLOAD_COMPLETED, {
+                            'music_id': songmid, 'song_name': song_name, 'artist': artist_name,
+                            'quality': actual_quality, 'source': 'qq', 'mode': 'local_only',
+                        }, source='api', async_mode=True)
+                    except Exception as e:
+                        task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                        fire_event(EventType.DOWNLOAD_FAILED, {
+                            'music_id': songmid, 'song_name': song_name, 'artist': artist_name,
+                            'source': 'qq', 'error': str(e),
+                        }, source='api', async_mode=True)
+                Thread(target=_bg_download, daemon=True).start()
+
+            response_data = {
+                'music_id': songmid, 'name': song_name, 'artist': artist_name,
+                'album': detail.get('album', ''), 'quality': actual_quality,
+                'source': 'qq', 'filename': filename, 'mode': 'local_only',
+            }
+            return APIResponse.success(response_data, "已开始后台保存到本地")
+
+        # 模式 1 & 2: 流式代理（浏览器即时下载 + 可选本地保存）
+        if save_local:
+            file_path = download_dir / filename
+            local_f = open(file_path, 'wb')
+        else:
+            local_f = None
+
+        def stream_proxy():
+            try:
+                r = requests.get(download_url, headers=qq_headers, stream=True, timeout=60)
+                r.raise_for_status()
+                for chunk in r.iter_content(chunk_size=65536):
+                    if local_f:
+                        local_f.write(chunk)
+                    yield chunk
+                task_manager.update_task(task.task_id, status=TaskStatus.COMPLETED, message='下载完成', progress=100)
+                tag = " (保存+浏览器)" if save_local else " (仅浏览器)"
+                operation_logger.info(f"[音乐下载] 音源=QQ MID={songmid} 歌名={song_name} 歌手={artist_name} 音质={actual_quality}{tag}")
+                fire_event(EventType.DOWNLOAD_COMPLETED, {
+                    'music_id': songmid, 'song_name': song_name, 'artist': artist_name,
+                    'quality': actual_quality, 'source': 'qq',
+                    'mode': 'browser' if not save_local else 'both',
+                }, source='api', async_mode=True)
+            except Exception as e:
+                api_service.logger.error(f"QQ流式下载异常: {e}")
+                task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+                fire_event(EventType.DOWNLOAD_FAILED, {
+                    'music_id': songmid, 'song_name': song_name, 'artist': artist_name,
+                    'source': 'qq', 'error': str(e),
+                }, source='api', async_mode=True)
+            finally:
+                if local_f:
+                    local_f.close()
+
+        mime_ext = file_ext.lstrip('.')
+        resp = Response(stream_with_context(stream_proxy()), mimetype=f"audio/{mime_ext}")
+        resp.headers['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+        resp.headers['X-Download-Filename'] = quote(filename, safe='')
+        return resp
+
+    except QQAPIException as e:
+        task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载失败', error=str(e))
+        return APIResponse.error(f"QQ音乐下载失败: {str(e)}", 502)
+    except Exception as e:
+        task_manager.update_task(task.task_id, status=TaskStatus.FAILED, message='下载过程出错', error=str(e))
+        api_service.logger.error(f"QQ音乐下载异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"QQ音乐下载异常: {str(e)}", 500)
+
+
 @app.route('/api/download', methods=['GET', 'POST'])
 @app.route('/api/download', methods=['GET', 'POST'])  # 向后兼容
 def download_music_api():
@@ -1148,6 +1347,7 @@ def download_music_api():
         music_id = data.get('id')
         quality = data.get('quality', 'lossless')
         return_format = data.get('format', 'file')  # file 或 json
+        source = (data.get('source') or 'netease').strip().lower()  # netease / qq
 
         # 读取下载配置
         save_local = config.download_save_local
@@ -1167,6 +1367,10 @@ def download_music_api():
         # 验证返回格式
         if return_format not in ['file', 'json']:
             return APIResponse.error("返回格式只支持 'file' 或 'json'")
+        
+        # QQ音乐音源：songmid 为字母数字，单独处理，不走网易云数字ID流程
+        if source == 'qq':
+            return _download_qq_music(str(music_id).strip(), quality, save_local, browser_download, download_dir)
         
         music_id = api_service._extract_music_id(music_id)
         cookies = api_service._get_cookies()
@@ -1505,6 +1709,87 @@ def get_lyrics_count():
         return APIResponse.error(f"获取歌词总数失败: {str(e)}", 500)
 
 
+@app.route('/api/lyrics/query', methods=['GET', 'POST'])
+def query_lyrics_api():
+    """歌词查询接口：按歌曲 ID 或中文名称查询歌词（含原文 + 翻译）
+
+    请求参数（任选其一）：
+        id      - 歌曲 ID（优先，精确）
+        keyword - 歌曲名称 / 关键词（可配合 artist 提高匹配度）
+        artist  - 歌手名（可选，仅 keyword 模式生效）
+
+    返回：歌曲元信息 + 原文歌词 lyric + 翻译歌词 tlyric
+    """
+    try:
+        data = api_service._safe_get_request_data()
+        song_id = data.get('id') or data.get('ids')
+        keyword = data.get('keyword') or data.get('title') or data.get('name')
+        artist = (data.get('artist') or '').strip()
+
+        if not song_id and not keyword:
+            return APIResponse.error("必须提供 'id' 或 'keyword' 参数")
+
+        cookies = api_service._get_cookies()
+
+        # 名称查询：先搜索匹配最佳歌曲
+        if not song_id:
+            search_keyword = f"{keyword} {artist}".strip()
+            results = search_music(search_keyword, cookies, limit=10)
+            if not results:
+                return APIResponse.error(f"未搜索到歌曲：{keyword}", 404)
+            matched = None
+            for song in results:
+                if song.get('name', '').lower() == str(keyword).lower():
+                    matched = song
+                    break
+            matched = matched or results[0]
+            song_id = matched.get('id')
+
+        music_id = api_service._extract_music_id(song_id)
+
+        # 歌曲元信息
+        song_meta = name_v1(music_id)
+        song_name, ar_name, al_name, pic = '', '', '', ''
+        if song_meta and song_meta.get('songs'):
+            sd = song_meta['songs'][0]
+            song_name = sd.get('name', '')
+            ar_name = ', '.join(a.get('name', '') for a in sd.get('ar', []))
+            al_name = sd.get('al', {}).get('name', '')
+            pic = sd.get('al', {}).get('picUrl', '')
+
+        # 歌词
+        lyric_info = lyric_v1(music_id, cookies)
+        lyric = lyric_info.get('lrc', {}).get('lyric', '') if lyric_info else ''
+        tlyric = lyric_info.get('tlyric', {}).get('lyric', '') if lyric_info else ''
+
+        if not lyric:
+            return APIResponse.error("未找到该歌曲的歌词", 404)
+
+        fire_event(EventType.SONG_INFO_FETCHED, {
+            'music_id': music_id,
+            'info_type': 'lyric_query',
+            'song_name': song_name,
+            'artist': ar_name,
+        }, source='api')
+
+        return APIResponse.success({
+            'id': music_id,
+            'name': song_name,
+            'ar_name': ar_name,
+            'al_name': al_name,
+            'pic': pic,
+            'lyric': lyric,
+            'tlyric': tlyric,
+        }, "获取歌词成功")
+
+    except APIException as e:
+        api_service.logger.error(f"歌词查询API调用失败: {e}")
+        return APIResponse.error(f"API调用失败: {str(e)}", 500)
+    except Exception as e:
+        api_service.logger.error(f"歌词查询异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"服务器错误: {str(e)}", 500)
+
+
 @app.route('/api/sync/config', methods=['GET'])
 def get_sync_config():
     """获取同步配置"""
@@ -1701,6 +1986,32 @@ def delete_cookie_config(name):
         return APIResponse.success(None, f"Cookie [{name}] 已删除")
     except Exception as e:
         return APIResponse.error(f"删除失败: {str(e)}", 500)
+
+
+@app.route('/api/qq/cookie', methods=['GET'])
+def get_qq_cookie_config():
+    """获取QQ音乐 Cookie 配置"""
+    try:
+        content = _read_qq_cookie()
+        return APIResponse.success({
+            'content': content,
+            'configured': bool(content),
+        }, "获取QQ音乐Cookie成功")
+    except Exception as e:
+        return APIResponse.error(f"获取QQ音乐Cookie失败: {str(e)}", 500)
+
+
+@app.route('/api/qq/cookie', methods=['POST'])
+def save_qq_cookie_config():
+    """保存QQ音乐 Cookie 配置（用于QQ音源的完整搜索与下载）"""
+    try:
+        data = api_service._safe_get_request_data()
+        content = (data.get('content') or '').strip()
+        _write_qq_cookie(content)
+        return APIResponse.success({'configured': bool(content)},
+                                   "QQ音乐Cookie已保存" if content else "QQ音乐Cookie已清空")
+    except Exception as e:
+        return APIResponse.error(f"保存QQ音乐Cookie失败: {str(e)}", 500)
 
 
 @app.route('/api/settings', methods=['GET'])

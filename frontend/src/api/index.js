@@ -38,6 +38,10 @@ export function getAlbum(params) {
   return api.post('/api/album', params)
 }
 
+export function queryLyrics(params) {
+  return api.post('/api/lyrics/query', params)
+}
+
 export function downloadMusic(params, options = {}) {
   // 使用独立实例（不提取 .data），但共享认证拦截器
   const instance = createAuthAxios()
@@ -78,6 +82,14 @@ export function activateCookie(name) {
 
 export function deleteCookie(name) {
   return api.delete(`/api/cookie/${encodeURIComponent(name)}`)
+}
+
+export function getQQCookie() {
+  return api.get('/api/qq/cookie')
+}
+
+export function saveQQCookie(content) {
+  return api.post('/api/qq/cookie', { content })
 }
 
 // ==================== 设置 ====================

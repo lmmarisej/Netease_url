@@ -1,0 +1,123 @@
+{
+  "source": {
+    "project": "tencent_url-main",
+    "origin": "https://github.com/Suxiaoqinx/tencent_url",
+    "extracted_from": ["app.py", "QQ音乐无损解析类.php"],
+    "description": "QQ音乐（腾讯音乐）无损解析所用到的官方接口整理"
+  },
+  "common": {
+    "guid": "10000",
+    "uin": "0",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+      "Referer": "https://y.qq.com/"
+    },
+    "cookie": "可选，VIP/高音质解析时需要登录Cookie"
+  },
+  "file_config": {
+    "_note": "音质等级 -> 文件名前缀(s) / 扩展名(e) / 比特率(bitrate)",
+    "128": {"s": "M500", "e": ".mp3", "bitrate": "128kbps"},
+    "320": {"s": "M800", "e": ".mp3", "bitrate": "320kbps"},
+    "flac": {"s": "F000", "e": ".flac", "bitrate": "FLAC"},
+    "master": {"s": "AI00", "e": ".flac", "bitrate": "Master 臻品母带2.0 24Bit 192kHz"},
+    "atmos_2": {"s": "Q000", "e": ".flac", "bitrate": "Atmos 2 臻品全景声2.0"},
+    "atmos_51": {"s": "Q001", "e": ".flac", "bitrate": "Atmos 5.1 臻品音质2.0"},
+    "ogg_640": {"s": "O801", "e": ".ogg", "bitrate": "640kbps"},
+    "ogg_320": {"s": "O800", "e": ".ogg", "bitrate": "320kbps"},
+    "ogg_192": {"s": "O600", "e": ".ogg", "bitrate": "192kbps"},
+    "ogg_96": {"s": "O400", "e": ".ogg", "bitrate": "96kbps"},
+    "aac_192": {"s": "C600", "e": ".m4a", "bitrate": "192kbps"},
+    "aac_96": {"s": "C400", "e": ".m4a", "bitrate": "96kbps"},
+    "aac_48": {"s": "C200", "e": ".m4a", "bitrate": "48kbps"}
+  },
+  "apis": [
+    {
+      "name": "短链重定向解析ID",
+      "purpose": "从分享短链(c6.y.qq.com)或 y.qq.com 链接中提取 songmid / songid",
+      "method": "GET",
+      "url": "传入的歌曲分享链接",
+      "redirect": true,
+      "note": "含 c6.y.qq.com 时跟随 302 取 Location；/songDetail/<mid> 取 mid；含 id=<num> 取 songid",
+      "examples": [
+        "https://y.qq.com/n/ryqq/songDetail/004YZbkL2MNHoY",
+        "https://c6.y.qq.com/base/fcgi-bin/u?__=xxxx"
+      ]
+    },
+    {
+      "name": "获取歌曲信息",
+      "purpose": "由 songmid 或 songid 获取歌曲名、专辑、歌手、封面、interval",
+      "method": "POST",
+      "url": "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg",
+      "content_type": "application/x-www-form-urlencoded",
+      "params_by_songid": {"songid": "<sid>", "platform": "yqq", "format": "json"},
+      "params_by_songmid": {"songmid": "<mid>", "platform": "yqq", "format": "json"},
+      "response_path": "data[0]",
+      "cover_url_template": "https://y.qq.com/music/photo_new/T002R800x800M000{album_mid}.jpg?max_age=2592000"
+    },
+    {
+      "name": "获取播放URL (vkey)",
+      "purpose": "由 songmid + 音质类型 获取真实播放地址",
+      "method": "POST",
+      "url": "https://u.y.qq.com/cgi-bin/musicu.fcg",
+      "content_type": "application/json",
+      "request_body": {
+        "req_1": {
+          "module": "vkey.GetVkeyServer",
+          "method": "CgiGetVkey",
+          "param": {
+            "filename": ["{s}{songmid}{songmid}{e}"],
+            "guid": "10000",
+            "songmid": ["<mid>"],
+            "songtype": [0],
+            "uin": "0",
+            "loginflag": 1,
+            "platform": "20"
+          }
+        },
+        "loginUin": "0",
+        "comm": {"uin": "0", "format": "json", "ct": 24, "cv": 0}
+      },
+      "response_path": "req_1.data.midurlinfo[0].purl",
+      "final_url": "req_1.data.sip[1] + purl",
+      "note": "purl 为空 -> VIP/无版权/无该音质；最终URL把 http:// 替换为 https://"
+    },
+    {
+      "name": "获取歌词 (旧版接口)",
+      "purpose": "由 songmid 获取歌词(base64)",
+      "method": "GET",
+      "url": "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg",
+      "params": {
+        "_": "<时间戳>",
+        "format": "json",
+        "loginUin": "<随机10位数字>",
+        "songmid": "<mid>"
+      },
+      "headers": {"Referer": "https://y.qq.com/"},
+      "response_path": "lyric",
+      "decode": "base64 -> utf-8"
+    },
+    {
+      "name": "获取歌词 (新版/PC客户端接口)",
+      "purpose": "由 songid 获取原文歌词 lyric + 翻译歌词 trans",
+      "method": "POST",
+      "url": "https://u.y.qq.com/cgi-bin/musicu.fcg",
+      "content_type": "application/json",
+      "request_body": {
+        "music.musichallSong.PlayLyricInfo.GetPlayLyricInfo": {
+          "module": "music.musichallSong.PlayLyricInfo",
+          "method": "GetPlayLyricInfo",
+          "param": {
+            "trans_t": 0, "roma_t": 0, "crypt": 0, "lrc_t": 0,
+            "interval": 208, "trans": 1, "ct": 6, "songID": "<songid>",
+            "qrc_t": 0, "cv": 80600, "roma": 1, "qrc": 0,
+            "singerName": "", "albumName": "", "songName": "", "type": 0
+          }
+        },
+        "comm": {"ct": "6", "cv": "80600", "tmeAppID": "qqmusic", "tmeLoginType": "2"}
+      },
+      "response_path": "music.musichallSong.PlayLyricInfo.GetPlayLyricInfo.data",
+      "fields": {"lyric": "原文歌词(base64)", "trans": "翻译歌词(base64)"},
+      "decode": "base64 -> utf-8"
+    }
+  ]
+}

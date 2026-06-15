@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex align-center mb-5">
       <v-icon size="32" color="primary" class="mr-3">mdi-text-box-outline</v-icon>
-      <h2 class="text-h4 font-weight-bold">运行日志</h2>
+      <h1 class="text-h4 font-weight-bold">运行日志</h1>
     </div>
 
     <v-card class="mb-4" variant="flat" color="surface-variant">
@@ -16,6 +16,7 @@
           v-model="selectedFile"
           :items="logFiles"
           hide-details
+          aria-label="选择日志文件"
           style="min-width:220px;max-width:300px;"
           placeholder="选择日志文件"
         />
@@ -34,24 +35,28 @@
     <v-card class="log-container">
       <div class="log-header d-flex align-center justify-space-between pa-3 px-5">
         <span class="text-body-2 font-weight-bold text-white">{{ currentFileName }}</span>
-        <span class="text-caption" style="color:#64748b;">倒序排列 · 最近 1000 条</span>
+        <span class="text-caption" style="color:#94a3b8;">倒序排列 · 最近 1000 条</span>
       </div>
-      <div class="log-lines" ref="logContainer">
+      <div class="log-lines">
         <div v-if="lines.length === 0" class="text-center py-12" style="color:#94a3b8;">
           <v-icon size="48" class="mb-3" color="grey">mdi-text-box-outline</v-icon>
           <p>{{ logError || '暂无日志内容' }}</p>
         </div>
-        <div v-for="(line, i) in lines" :key="i" class="log-line">
-          <span class="line-number">{{ line._idx }}</span>
-          <span :class="logLevelClass(line.text)">{{ line.text }}</span>
-        </div>
+        <v-virtual-scroll v-else :items="lines" height="70vh">
+          <template #default="{ item: line }">
+            <div class="log-line">
+              <span class="line-number">{{ line._idx }}</span>
+              <span :class="logLevelClass(line.text)">{{ line.text }}</span>
+            </div>
+          </template>
+        </v-virtual-scroll>
       </div>
     </v-card>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { getLogs, cleanupLogs } from '@/api/index.js'
 
 const lines = ref([])
@@ -62,7 +67,6 @@ const lineCountText = ref('--')
 const isPaused = ref(false)
 const cleaning = ref(false)
 const logError = ref('')
-const logContainer = ref(null)
 let timer = null
 
 function logLevelClass(text) {
@@ -91,10 +95,6 @@ async function fetchLogs() {
   } catch (e) {
     logError.value = '获取日志失败，请检查服务运行状态'
   }
-  await nextTick()
-  if (logContainer.value) {
-    logContainer.value.scrollTop = 0
-  }
 }
 
 function togglePause() {
@@ -107,7 +107,7 @@ function togglePause() {
 }
 
 async function handleCleanup() {
-  if (!confirm('确定要清空所有日志文件吗？此操作不可恢复。')) return
+  if (!(await window.__confirm({ title: '清空日志', text: '确定要清空所有日志文件吗？此操作不可恢复。', confirmText: '清空', confirmColor: 'error' }))) return
   cleaning.value = true
   try {
     const res = await cleanupLogs()
@@ -139,13 +139,13 @@ onUnmounted(() => {
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
-.status-dot.live { background: #22c55e; animation: pulse 2s infinite; }
-.status-dot.paused { background: #f59e0b; }
+.status-dot.live { background: rgb(var(--v-theme-success)); animation: pulse 2s infinite; }
+.status-dot.paused { background: rgb(var(--v-theme-warning)); }
 @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
 
 .log-container { background: #1e293b; border-radius: 12px; overflow: hidden; }
 .log-lines {
-  max-height: 70vh; overflow-y: auto; padding: 0;
+  padding: 0;
   font-family: 'SF Mono','Fira Code','Consolas','Microsoft YaHei',monospace;
   font-size: 13px; line-height: 1.5; color: #e2e8f0;
   counter-reset: log-line;
@@ -158,7 +158,7 @@ onUnmounted(() => {
 .log-line:hover { background: rgba(255,255,255,0.04); }
 .line-number {
   position: absolute; left: 12px; width: 40px; text-align: right;
-  color: #475569; font-size: 11px; user-select: none;
+  color: #94a3b8; font-size: 12px; user-select: none;
 }
 .lvl-error { color: #f87171; font-weight: 600; }
 .lvl-warning { color: #fbbf24; }

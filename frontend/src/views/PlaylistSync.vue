@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex align-center mb-5">
       <v-icon size="32" color="primary" class="mr-3">mdi-playlist-music</v-icon>
-      <h2 class="text-h4 font-weight-bold">歌单同步</h2>
+      <h1 class="text-h4 font-weight-bold">歌单同步</h1>
     </div>
 
     <v-alert :type="syncRunning ? 'success' : 'warning'" variant="tonal" class="mb-4" density="compact">
@@ -30,13 +30,13 @@
           <v-card-title class="text-subtitle-1 font-weight-bold">歌单管理</v-card-title>
           <v-card-text>
             <div class="d-flex ga-2 mb-3" style="max-width:500px;">
-              <v-text-field v-model="playlistInput" hide-details placeholder="输入歌单ID或链接" @keydown.enter="addPlaylist" />
+              <v-text-field v-model="playlistInput" hide-details aria-label="歌单 ID 或链接" placeholder="输入歌单ID或链接" @keydown.enter="addPlaylist" />
               <v-btn color="primary" @click="addPlaylist" :loading="playlistLoading">添加</v-btn>
             </div>
             <div v-if="playlistIds.length === 0" class="text-caption text-medium-emphasis">尚未添加歌单</div>
             <div v-else class="d-flex flex-wrap ga-2">
-              <v-chip v-for="p in playlistIds" :key="p.id" closable variant="tonal" color="primary" @click:close="removePlaylist(p.id)">
-                📋 {{ p.name || p.id }}
+              <v-chip v-for="p in playlistIds" :key="p.id" closable variant="tonal" color="primary" prepend-icon="mdi-playlist-music" :aria-label="'移除歌单 '+(p.name||p.id)" @click:close="removePlaylist(p.id)">
+                {{ p.name || p.id }}
                 <template v-if="p.name"><small class="text-medium-emphasis ml-1">({{ p.id }})</small></template>
               </v-chip>
             </div>
@@ -104,8 +104,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { getSyncConfig, saveSyncConfig, getSyncStatus, triggerSyncNow } from '@/api/index.js'
+
+let statusTimer = null
 
 const syncEnabled = ref(false)
 const playlistIds = ref([])
@@ -243,7 +245,11 @@ async function syncNow() {
 onMounted(() => {
   loadConfig()
   loadStatus()
-  setInterval(loadStatus, 10000)
+  statusTimer = setInterval(loadStatus, 10000)
+})
+
+onUnmounted(() => {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null }
 })
 </script>
 
@@ -255,6 +261,6 @@ onMounted(() => {
   display: inline-block;
   flex-shrink: 0;
 }
-.status-dot.on { background: #22c55e; }
-.status-dot.off { background: #9ca3af; }
+.status-dot.on { background: rgb(var(--v-theme-success)); }
+.status-dot.off { background: rgb(var(--v-theme-secondary)); }
 </style>

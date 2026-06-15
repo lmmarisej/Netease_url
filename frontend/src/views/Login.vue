@@ -1,14 +1,14 @@
 <template>
-  <div class="login-page fill-height d-flex align-center justify-center" style="background: rgb(var(--v-theme-background)); min-height: 100vh;">
+  <div class="login-page fill-height d-flex align-center justify-center" style="background: rgb(var(--v-theme-background)); min-height: 100dvh;">
     <v-container fluid class="d-flex align-center justify-center">
       <v-row align="center" justify="center" class="w-100">
         <v-col cols="12" sm="8" md="5" lg="4" xl="3">
           <v-card class="pa-6" elevation="8" rounded="xl">
               <div class="text-center mb-6">
                 <v-icon size="56" color="primary" class="mb-2">mdi-music-circle</v-icon>
-                <h2 class="text-h4 font-weight-bold">
+                <h1 class="text-h4 font-weight-bold">
                   <span class="text-primary">Music</span> Toolbox
-                </h2>
+                </h1>
                 <p class="text-body-2 text-medium-emphasis mt-1">请登录以继续</p>
               </div>
 
@@ -40,10 +40,12 @@
                   label="密码"
                   prepend-inner-icon="mdi-lock"
                   placeholder="请输入密码"
-                  type="password"
+                  :type="showPassword ? 'text' : 'password'"
+                  :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
                   autocomplete="current-password"
                   :rules="[v => !!v || '请输入密码']"
                   class="mb-2"
+                  @click:append-inner="showPassword = !showPassword"
                 />
 
                 <v-btn
@@ -73,6 +75,7 @@ import { login } from '@/api/index.js'
 const router = useRouter()
 const username = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const loading = ref(false)
 const errorMsg = ref('')
 

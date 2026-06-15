@@ -58,6 +58,51 @@
           }
         },
         {
+          "path": "/api/lyrics/query",
+          "method": "GET, POST",
+          "description": "歌词查询：按歌曲 ID 或中文名称查询歌词，返回歌曲元信息 + 原文歌词 + 翻译歌词。ID 模式精确匹配；名称模式自动搜索并取最佳匹配。",
+          "parameters": [
+            {"name": "id", "type": "string", "required": false, "note": "歌曲ID或网易云链接（与 keyword 二选一，优先）"},
+            {"name": "keyword", "type": "string", "required": false, "note": "歌曲中文名称/关键词（与 id 二选一），可同名 title/name"},
+            {"name": "artist", "type": "string", "required": false, "note": "歌手名，仅名称模式生效，提高匹配准确度"}
+          ],
+          "example_request": {
+            "curl": "curl -X POST http://127.0.0.1:5000/api/lyrics/query -H \"Content-Type: application/json\" -d '{\"keyword\":\"晴天\",\"artist\":\"周杰伦\"}'",
+            "python": "import requests\nr = requests.post('http://127.0.0.1:5000/api/lyrics/query', json={'keyword': '晴天', 'artist': '周杰伦'})\nprint(r.json())"
+          },
+          "example_response": {
+            "status": 200,
+            "success": true,
+            "message": "获取歌词成功",
+            "data": {
+              "id": "186016",
+              "name": "晴天",
+              "ar_name": "周杰伦",
+              "al_name": "叶惠美",
+              "pic": "https://...",
+              "lyric": "[00:00.00] 作词 : 周杰伦\n[00:25.30] 故事的小黄花...",
+              "tlyric": "[00:25.30] 翻译内容..."
+            }
+          }
+        },
+        {
+          "path": "/api/lyrics",
+          "method": "GET",
+          "description": "公开歌词查询（代理模式）：按歌曲名优先查本地缓存，未命中则代理网易云搜索并缓存，返回纯文本 LRC（无 JSON 包装）。",
+          "parameters": [
+            {"name": "title", "type": "string", "required": true, "note": "歌曲名"},
+            {"name": "artist", "type": "string", "required": false, "note": "歌手名（可选）"},
+            {"name": "duration", "type": "integer", "required": false, "note": "歌曲总时长(秒)，保留兼容"}
+          ],
+          "example_request": {
+            "curl": "curl \"http://127.0.0.1:5000/api/lyrics?title=晴天&artist=周杰伦\"",
+            "python": "import requests\nr = requests.get('http://127.0.0.1:5000/api/lyrics', params={'title': '晴天', 'artist': '周杰伦'})\nprint(r.text)"
+          },
+          "example_response": {
+            "note": "返回 text/plain 原始 LRC 文本，如：[00:25.30] 故事的小黄花..."
+          }
+        },
+        {
           "path": "/search",
           "aliases": ["/Search"],
           "method": "GET, POST",

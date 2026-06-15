@@ -2,11 +2,11 @@
   <div>
     <div class="d-flex align-center mb-5">
       <v-icon size="32" color="primary" class="mr-3">mdi-folder-multiple</v-icon>
-      <h2 class="text-h4 font-weight-bold">文件管理</h2>
+      <h1 class="text-h4 font-weight-bold">文件管理</h1>
     </div>
     <v-card class="mb-4" variant="flat" color="surface-variant">
       <v-card-text class="d-flex align-center flex-wrap ga-4 py-3">
-        <span class="text-body-2 text-medium-emphasis">{{ dirInfo }}</span>
+        <span class="text-body-2 text-medium-emphasis d-flex align-center ga-1"><v-icon size="18">mdi-folder-outline</v-icon>{{ dirInfo }}</span>
         <v-switch v-model="audioOnly" label="仅音频" hide-details color="primary" />
         <v-text-field v-model="extFilter" label="文件名搜索" hide-details style="max-width:200px;" placeholder="如 .mp3 或 歌曲名" clearable />
         <v-checkbox v-model="ignoreCase" label="忽略大小写" hide-details />
@@ -33,17 +33,17 @@
         <template #item.modified="{ item }"><span class="text-caption text-medium-emphasis">{{ item.modified || '--' }}</span></template>
         <template #item.actions="{ item }">
           <div class="d-flex ga-1">
-            <v-btn v-if="isAudio(item.name)" size="x-small" variant="tonal" color="primary" icon="mdi-play" @click.stop="playAudio(item.name)" />
-            <v-btn v-if="isTextFile(item.name)" size="x-small" variant="tonal" color="info" icon="mdi-pencil" @click="editFile(item.name)" />
-            <v-btn size="x-small" variant="tonal" icon="mdi-download" @click="downloadFile(item.name)" />
-            <v-btn size="x-small" variant="tonal" color="error" icon="mdi-delete" @click="deleteFile(item.name)" />
+            <v-btn v-if="isAudio(item.name)" size="small" variant="tonal" color="primary" icon="mdi-play" aria-label="播放" @click.stop="playAudio(item.name)" />
+            <v-btn v-if="isTextFile(item.name)" size="small" variant="tonal" color="info" icon="mdi-pencil" aria-label="编辑" @click="editFile(item.name)" />
+            <v-btn size="small" variant="tonal" icon="mdi-download" aria-label="下载" @click="downloadFile(item.name)" />
+            <v-btn size="small" variant="tonal" color="error" icon="mdi-delete" aria-label="删除" @click="deleteFile(item.name)" />
           </div>
         </template>
       </v-data-table>
     </v-card>
     <v-dialog v-model="editDialog" max-width="800px">
       <v-card>
-        <v-card-title class="d-flex align-center">✏ 编辑：{{ editingFilename }}<v-spacer /><v-btn icon="mdi-close" variant="text" @click="editDialog = false" /></v-card-title>
+        <v-card-title class="d-flex align-center ga-2"><v-icon color="info">mdi-pencil</v-icon>编辑：{{ editingFilename }}<v-spacer /><v-btn icon="mdi-close" variant="text" aria-label="关闭编辑" @click="editDialog = false" /></v-card-title>
         <v-card-text><v-textarea v-model="editContent" rows="20" style="font-family:monospace;font-size:13px;" auto-grow /></v-card-text>
         <v-card-actions class="pa-4"><v-spacer /><v-btn @click="editDialog = false">取消</v-btn><v-btn color="primary" :loading="saving" prepend-icon="mdi-content-save" @click="saveEdit">保存</v-btn></v-card-actions>
       </v-card>
@@ -67,7 +67,7 @@ const files=ref([]),selectedFiles=ref([]),loading=ref(false),audioOnly=ref(false
 const editDialog=ref(false),editingFilename=ref(''),editContent=ref('')
 const confirmDelete=ref(false),deleteTargets=ref([])
 const headers=[{title:'文件名',key:'name',sortable:true},{title:'大小',key:'size',sortable:true},{title:'修改时间',key:'modified',sortable:true},{title:'操作',key:'actions',sortable:false,width:200}]
-const dirInfo=computed(()=>`📂 downloads/ (${filteredFiles.value.length}/${files.value.length} 个文件)`)
+const dirInfo=computed(()=>`downloads/ (${filteredFiles.value.length}/${files.value.length} 个文件)`)
 const filteredFiles=computed(()=>{let r=files.value;if(audioOnly.value)r=r.filter(f=>/\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(f.name));if(extFilter.value.trim()){const e=extFilter.value.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');r=r.filter(f=>new RegExp(e,ignoreCase.value?'i':'').test(f.name))}return r})
 function formatSize(b){if(!b)return'0 KB';return b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB'}
 function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}

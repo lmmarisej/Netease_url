@@ -10,6 +10,7 @@
 """
 
 import json
+import os
 import urllib.parse
 import time
 from random import randrange
@@ -20,6 +21,46 @@ from enum import Enum
 import requests
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+
+def _resolve_ssl_verify():
+    """解析 SSL 校验策略
+
+    默认关闭校验（内网代理拦截 HTTPS 场景；存在中间人风险，请确保可信内网）。
+
+    环境变量：
+        NETEASE_SSL_VERIFY=1/true/yes/on   -> 重新开启校验
+        NETEASE_SSL_VERIFY=0/false/no/off  -> 关闭校验（默认）
+        NETEASE_CA_BUNDLE / REQUESTS_CA_BUNDLE=<path>  -> 指定企业根证书（推荐，保持安全）
+    """
+    flag = os.environ.get('NETEASE_SSL_VERIFY', '').strip().lower()
+    ca_bundle = os.environ.get('NETEASE_CA_BUNDLE') or os.environ.get('REQUESTS_CA_BUNDLE')
+
+    if flag in ('1', 'true', 'yes', 'on'):
+        if ca_bundle and os.path.exists(ca_bundle):
+            return ca_bundle
+        return True
+    if flag in ('0', 'false', 'no', 'off'):
+        return False
+
+    # 未显式设置：若提供了企业根证书则用之（安全），否则默认关闭校验
+    if ca_bundle and os.path.exists(ca_bundle):
+        return ca_bundle
+    return False
+
+
+SSL_VERIFY = _resolve_ssl_verify()
+
+# 统一外部请求会话：集中管理 SSL 校验策略
+_session = requests.Session()
+_session.verify = SSL_VERIFY
+
+if SSL_VERIFY is False:
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except Exception:
+        pass
 
 
 class QualityLevel(Enum):
@@ -119,7 +160,7 @@ class HTTPClient:
         request_cookies.update(cookies)
         
         try:
-            response = requests.post(url, headers=headers, cookies=request_cookies, 
+            response = _session.post(url, headers=headers, cookies=request_cookies, 
                                    data={"params": params}, timeout=30)
             response.raise_for_status()
             return response.text
@@ -138,7 +179,7 @@ class HTTPClient:
         request_cookies.update(cookies)
         
         try:
-            response = requests.post(url, headers=headers, cookies=request_cookies, 
+            response = _session.post(url, headers=headers, cookies=request_cookies, 
                                    data={"params": params}, timeout=30)
             response.raise_for_status()
             return response
@@ -250,7 +291,7 @@ class NeteaseAPI:
         """
         try:
             data = {'c': json.dumps([{"id": song_id, "v": 0}])}
-            response = requests.post(APIConstants.SONG_DETAIL_V3, data=data, timeout=30)
+            response = _session.post(APIConstants.SONG_DETAIL_V3, data=data, timeout=30)
             response.raise_for_status()
             
             result = response.json()
@@ -294,7 +335,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.LYRIC_API, data=data, 
+            response = _session.post(APIConstants.LYRIC_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -329,7 +370,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.SEARCH_API, data=data, 
+            response = _session.post(APIConstants.SEARCH_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -374,7 +415,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.post(APIConstants.PLAYLIST_DETAIL_API, data=data, 
+            response = _session.post(APIConstants.PLAYLIST_DETAIL_API, data=data, 
                                    headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
@@ -399,7 +440,7 @@ class NeteaseAPI:
                 batch_ids = track_ids[i:i+100]
                 song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
                 
-                song_resp = requests.post(APIConstants.SONG_DETAIL_V3, data=song_data, 
+                song_resp = _session.post(APIConstants.SONG_DETAIL_V3, data=song_data, 
                                         headers=headers, cookies=cookies, timeout=30)
                 song_resp.raise_for_status()
                 
@@ -439,7 +480,7 @@ class NeteaseAPI:
                 'Referer': APIConstants.REFERER
             }
             
-            response = requests.get(url, headers=headers, cookies=cookies, timeout=30)
+            response = _session.get(url, headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
             
             result = response.json()
