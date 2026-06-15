@@ -12,12 +12,7 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        timeout: 120000
-      },
-      '/sync': {
+      '^/api/': {
         target: 'http://localhost:5000',
         changeOrigin: true,
         timeout: 120000
@@ -26,7 +21,9 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true
       }
-    }
+    },
+    middlewareMode: false,
+    historyApiFallback: true
   },
   build: {
     outDir: 'dist',

@@ -1,25 +1,43 @@
 # 网易云音乐工具箱
 
-基于 Flask 的网易云音乐 API 服务，支持歌曲搜索、解析、下载、歌单同步，提供 Web 管理界面。
+基于 Flask + Vue 3 的网易云音乐 API 服务，支持歌曲搜索、解析、下载、歌单同步、歌词查询、消息推送，提供现代化 Web 管理界面。
 
 ## TODO list
 
-- [ ] 添加更多 API 端点
-- [ ] 增加`我的`功能，查看当前cookie对应账号信息【可与下载用的cookie不相同】
+- [x] 添加更多 API 端点
+- [x] 增加"我的"功能，查看当前 cookie 对应账号信息【可与下载用的 cookie 不相同】
 - [ ] 可对当前账号喜欢的音乐镜像操作
-- [ ] 添加用户登录功能，支持多个账户cookie
-- [ ] 同步功能，开启歌单完全匹配功能，开启后歌单同步删除歌曲，本地也删除
+- [x] 同步功能，开启歌单完全匹配功能，开启后歌单同步删除歌曲，本地也删除
 
 ## 🚀 快速开始
 
+### 后端（Flask）
+
 ```bash
 pip install -r requirements.txt
-# 将黑胶会员 Cookie 写入 config/cookie.txt
+cd backend
 python main.py
-# 访问 http://localhost:5000
+# 后端运行在 http://localhost:5000
 ```
 
-Docker 部署：
+### 前端（Vue 3 + Vite）
+
+```bash
+cd frontend
+npm install
+npm run dev
+# 前端运行在 http://localhost:3000，自动代理 API 到 :5000
+```
+
+### 默认账号
+
+| 用户名 | 密码 |
+|--------|------|
+| `admin` | `admin123` |
+
+账号配置位于 [`config/users.json`](config/users.json)。
+
+### Docker 部署
 
 ```bash
 docker-compose up -d
@@ -31,6 +49,8 @@ docker-compose up -d
 |------|------|------|
 | `/` | 业务操作 | 歌曲搜索、单曲/歌单/专辑解析、音乐下载 |
 | `/files` | 文件管理 | 本地下载文件浏览、音频播放、删除管理 |
+| `/lyrics` | 歌词查询 | 按歌曲/歌手/歌词关键词检索本地歌词库 |
+| `/sync` | 歌单同步 | 定时/手动同步网易云歌单到本地 |
 | `/config` | 配置 | 同步配置、下载配置 & Cookie 管理 |
 | `/magicpush` | 消息推送 | 推送配置管理 + 事件模板管理 |
 | `/tasks` | 任务监控 | 实时下载任务进度跟踪 |
@@ -39,9 +59,46 @@ docker-compose up -d
 
 ### 页面截图
 
-![img.png](img.png)
+#### 业务操作（首页）
+![home](screenshots/01_音乐搜索.png)
+
+#### 文件管理
+![files](screenshots/03_文件管理.png)
+
+#### 歌词查询
+![lyrics](screenshots/02_歌词查询.png)
+
+#### 歌单同步
+![sync](screenshots/04_歌单同步.png)
+
+#### 配置管理
+![config](screenshots/05_配置.png)
+
+#### 消息推送
+![magicpush](screenshots/06_消息推送.png)
+
+#### 任务监控
+![tasks](screenshots/07_任务管理.png)
+
+#### 运行日志
+![logs](screenshots/08_运行日志.png)
+
+#### API 接口文档
+![api-docs](screenshots/09_API文档.png)
+
+#### 登录页面
+![login](screenshots/login.png)
 
 ## 🔌 API 端点
+
+### 认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 用户登录 |
+| GET | `/api/auth/verify` | 验证 Token 有效性 |
+
+### 音乐服务
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -50,15 +107,71 @@ docker-compose up -d
 | GET/POST | `/search` | 搜索音乐 |
 | GET/POST | `/playlist` | 获取歌单详情 |
 | GET/POST | `/album` | 获取专辑详情 |
-| GET/POST | `/download` | 下载音乐文件 |
-| GET/POST | `/sync/config` | 定时同步配置 |
-| GET | `/sync/status` | 同步状态查询 |
-| POST | `/sync/now` | 立即触发同步 |
-| GET | `/api/info` | API 服务信息 |
-| GET | `/api/api-docs` | API 文档 JSON |
-| GET | `/api/logs` | 日志内容 API |
+| GET/POST | `/download` | 下载音乐文件（流式代理 + 音质降级） |
+| POST | `/api/lyrics/query` | 歌词查询 |
+
+### 同步
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET/POST | `/api/sync/config` | 定时同步配置 |
+| GET | `/api/sync/status` | 同步状态查询 |
+| POST | `/api/sync/now` | 立即触发同步 |
+
+### 配置 & Cookie
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/cookie` | 获取 Cookie 配置 |
 | POST | `/api/cookie` | 保存 Cookie 配置 |
+| POST | `/api/cookie/activate` | 激活指定 Cookie |
+| DELETE | `/api/cookie/{name}` | 删除 Cookie |
+| GET | `/api/qq/cookie` | 获取 QQ 音乐 Cookie |
+| POST | `/api/qq/cookie` | 保存 QQ 音乐 Cookie |
+| GET | `/api/settings` | 获取设置 |
+| POST | `/api/settings` | 保存设置 |
+
+### 文件管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/files/list` | 文件列表 |
+| POST | `/api/files/delete` | 删除文件 |
+| GET | `/api/files/read/{name}` | 读取文件 |
+| POST | `/api/files/save` | 保存文件 |
+| GET | `/api/files/stream/{name}` | 文件流播放/下载 |
+
+### 任务监控
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tasks` | 任务列表 |
+| DELETE | `/api/tasks/{id}` | 删除任务 |
+| POST | `/api/tasks/clear` | 清理已完成任务 |
+
+### 日志
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/logs` | 日志内容 API |
+| POST | `/api/logs/cleanup` | 清空日志 |
+
+### 消息推送
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/push/config` | 获取推送配置 |
+| POST | `/api/push/config` | 保存推送配置 |
+| POST | `/api/push/send` | 发送推送测试 |
+| GET | `/api/events/catalog` | 事件目录 |
+| GET | `/api/events/history` | 事件历史 |
+
+### 系统
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/info` | API 服务信息 |
+| GET | `/api/api-docs` | API 文档 JSON |
 
 > 完整文档见 Web 界面 `/api-docs`
 
@@ -74,43 +187,86 @@ docker-compose up -d
 | `sky` | 沉浸环绕声 | 黑胶 SVIP |
 | `jymaster` | 超清母带 | 黑胶 SVIP |
 
+> 下载时如请求音质不可用，自动逐级降级：`jymaster → sky → jyeffect → hires → lossless → exhigh → standard`
+
 ## 📁 项目结构
 
 ```
-├── main.py                 # 入口
-├── code/                   # Python 模块
-│   ├── music_api.py        # 网易云 API 封装
-│   ├── music_downloader.py # 下载器
-│   ├── playlist_sync.py    # 定时同步
-│   ├── cookie_manager.py   # Cookie 管理
-y│   ├── qr_login.py         # 扫码登录
-│   ├── task_manager.py     # 任务管理器
-│   ├── event_bus.py        # 事件总线（发布/订阅）
-│   └── push_manager.py     # 消息推送管理
-├── config/
-│   ├── settings.json       # 运行配置
-│   ├── api.json            # API 文档定义
-│   ├── sync_config.json    # 同步配置（运行时生成）
-│   ├── push_config.json    # 推送配置 + 事件模板
-│   └── cookie.txt          # Cookie 配置
-├── templates/              # Web 页面
-│   ├── index.html          # 业务操作
-│   ├── files.html          # 文件管理
-│   ├── config.html         # 配置
-│   ├── magicpush.html      # 消息推送
-│   ├── tasks.html          # 任务监控
-│   ├── logs.html           # 运行日志
-│   └── api-docs.html       # API 文档
-├── logs/                   # 日志文件
-├── downloads/              # 下载目录
-└── screenshots/            # 截图
+├── backend/                      # Flask 后端
+│   ├── main.py                   # 入口，路由注册
+│   ├── auth.py                   # 用户认证 & Token 管理
+│   ├── music_api.py              # 网易云 API 封装（加密、请求）
+│   ├── music_downloader.py       # 音乐下载器（含 mutagen 标签写入）
+│   ├── playlist_sync.py          # 定时歌单同步（APScheduler）
+│   ├── cookie_manager.py         # Cookie 读写管理
+│   ├── qr_login.py               # 扫码登录
+│   ├── task_manager.py           # 通用任务管理器
+│   ├── event_bus.py              # 事件总线（发布/订阅）
+│   ├── push_manager.py           # 消息推送管理
+│   ├── lyrics_db.py              # 本地歌词数据库
+│   └── qq_music_api.py           # QQ 音乐 API 封装
+├── frontend/                     # Vue 3 前端
+│   ├── index.html                # HTML 入口
+│   ├── vite.config.js            # Vite 配置（含 API 代理）
+│   └── src/
+│       ├── main.js               # Vue 应用入口（Vuetify 配置）
+│       ├── App.vue               # 根组件（导航 + 路由）
+│       ├── router.js             # 路由配置（含登录守卫）
+│       ├── api/
+│       │   ├── index.js          # API 接口封装
+│       │   └── authAxios.js      # 认证拦截器
+│       ├── styles/
+│       │   └── apple-theme.css   # Apple 风格主题
+│       └── views/
+│           ├── Login.vue              # 登录页
+│           ├── BusinessOperation.vue  # 业务操作（首页）
+│           ├── FileManagement.vue     # 文件管理
+│           ├── LyricsQuery.vue        # 歌词查询
+│           ├── PlaylistSync.vue       # 歌单同步
+│           ├── ConfigPage.vue         # 配置管理
+│           ├── MagicPush.vue          # 消息推送
+│           ├── TaskMonitor.vue        # 任务监控
+│           ├── RunningLogs.vue        # 运行日志
+│           └── ApiDocs.vue            # API 文档
+├── config/                       # 配置文件
+│   ├── users.json                # 用户列表
+│   ├── settings.json             # 运行配置
+│   ├── api.json                  # API 文档定义
+│   ├── lyrics.db                 # 歌词数据库
+│   ├── qq_music_api.json         # QQ 音乐 API 配置
+│   └── users/{username}/         # 用户专属配置
+│       ├── cookies.json          # Cookie 配置
+│       ├── settings.json         # 个人设置
+│       ├── sync_config.json      # 同步配置
+│       ├── push_config.json      # 推送配置
+│       └── qq_cookie.json        # QQ 音乐 Cookie
+├── screenshots/                  # 页面截图
+├── requirements.txt              # Python 依赖
+├── Dockerfile
+├── docker-compose.yml
+└── entrypoint.sh
 ```
+
+## 🛠 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | Python Flask |
+| 前端框架 | Vue 3 + Vite |
+| UI 组件库 | Vuetify 3 (Material Design) |
+| 路由 | Vue Router 4 |
+| HTTP 客户端 | Axios |
+| 认证 | itsdangerous (JWT-like Token) |
+| 定时任务 | APScheduler |
+| 音频标签 | mutagen |
+| 容器化 | Docker + docker-compose |
 
 ## ⚠️ 注意事项
 
 - 需要网易云音乐黑胶会员账号 Cookie 才能解析高音质
-- 将 Cookie 完整内容写入 `config/cookie.txt` 文件，或在 Web 界面 `/config` → Cookie 配置中编辑
-- 同步配置和 Cookie 均在 Web 界面 `/config` 中管理（页签切换）
+- Cookie 通过 Web 界面 `/config` → Cookie 配置管理，支持多 Cookie 切换
+- 同步配置和 Cookie 在 `/config` 页面中分别管理
+- 支持多用户体系，每个用户有独立的配置目录 `config/users/{username}/`
 
 ## 📄 许可证
 

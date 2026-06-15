@@ -490,7 +490,7 @@ operation_logger = _setup_operation_logger()
 config = APIConfig()
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
 app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIR, 'assets'), static_url_path='/assets')
-app.config['JSON_AS_ASCII'] = False
+app.json.ensure_ascii = False
 
 api_service = MusicAPIService(config)
 
