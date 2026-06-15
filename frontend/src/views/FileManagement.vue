@@ -74,7 +74,14 @@ function isAudio(n){return /\.(mp3|flac|m4a|wav|ogg|wma)$/i.test(n)}
 function isTextFile(n){return !isAudio(n)&&!/\.(png|jpg|jpeg|gif|bmp|ico|svg|mp4|mkv|avi|mov|zip|rar|7z|gz|tar|exe|dll|so|bin)$/i.test(n)}
 async function loadFiles(){loading.value=true;try{const r=await getFileList();if(r?.status===200)files.value=r.data?.files||[]}catch(e){window.__snackbar?.('加载失败','error')}finally{loading.value=false}}
 function playAudio(fn){window.__playAudio?.(fn)}
-function downloadFile(fn){window.open('/api/files/stream/'+encodeURIComponent(fn)+'?download=1','_blank')}
+function downloadFile(fn){
+  const a = document.createElement('a')
+  a.href = '/api/files/stream/' + encodeURIComponent(fn) + '?download=1'
+  a.download = fn
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
 function deleteFile(fn){deleteTargets.value=[fn];confirmDelete.value=true}
 function deleteSelected(){if(!selectedFiles.value.length)return window.__snackbar?.('请先选择文件','warning');deleteTargets.value=[...selectedFiles.value];confirmDelete.value=true}
 async function doDelete(){deleting.value=true;let d=0;for(const fn of deleteTargets.value){try{await deleteFiles({filename:fn});d++}catch(e){}}window.__snackbar?.(`已删除 ${d} 个文件`,'success');confirmDelete.value=false;selectedFiles.value=[];await loadFiles();deleting.value=false}
