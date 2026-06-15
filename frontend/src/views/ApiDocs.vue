@@ -2,7 +2,7 @@
   <div>
     <div class="d-flex align-center mb-6">
       <v-icon size="32" color="primary" class="mr-3">mdi-book-open-variant</v-icon>
-      <h2 class="text-h4 font-weight-bold">API 接口文档</h2>
+      <h1 class="text-h4 font-weight-bold">API 接口文档</h1>
     </div>
 
     <v-alert v-if="error" type="error" variant="tonal" class="mb-4" closable>
@@ -13,17 +13,23 @@
 
     <template v-if="!loading && !error && apiData">
       <div class="api-hero rounded-xl pa-8 mb-8 text-white">
-        <h2 class="text-h4 font-weight-bold">{{ apiData.title || 'API 文档' }}</h2>
+        <h2 class="text-h4 font-weight-bold">{{ apiMeta.name || apiData.title || 'API 文档' }}</h2>
         <div class="d-flex align-center ga-3 mt-3">
-          <v-chip variant="outlined" color="white" size="small">v{{ apiData.version || '1.0' }}</v-chip>
-          <span class="text-body-2" style="opacity:0.85;">{{ apiData.description || '' }}</span>
+          <v-chip variant="outlined" color="white" size="small">v{{ apiMeta.version || apiData.version || '1.0' }}</v-chip>
+          <span class="text-body-2" style="opacity:0.85;">{{ apiMeta.description || apiData.description || '' }}</span>
         </div>
       </div>
 
       <v-card v-for="(cat, ci) in (apiData.categories || [])" :key="ci" class="mb-6">
         <v-card-title
           class="d-flex align-center pa-5 cursor-pointer cat-header"
+          role="button"
+          tabindex="0"
+          :aria-expanded="cat._open !== false"
+          :aria-label="(cat._open !== false ? '收起' : '展开') + ' ' + cat.name"
           @click="cat._open = !cat._open"
+          @keydown.enter.prevent="cat._open = !cat._open"
+          @keydown.space.prevent="cat._open = !cat._open"
         >
           <v-icon size="24" color="primary" class="mr-3">{{ cat.icon || 'mdi-api' }}</v-icon>
           <span class="text-h6 font-weight-bold">{{ cat.name }}</span>
@@ -35,7 +41,16 @@
         <v-expand-transition>
           <div v-show="cat._open !== false">
             <div v-for="(ep, ei) in (cat.endpoints || [])" :key="ei" class="endpoint-divider">
-              <div class="d-flex align-center pa-4 cursor-pointer" @click="ep._open = !ep._open">
+              <div
+                class="d-flex align-center pa-4 cursor-pointer"
+                role="button"
+                tabindex="0"
+                :aria-expanded="!!ep._open"
+                :aria-label="(ep._open ? '收起' : '展开') + ' ' + ep.method + ' ' + ep.path"
+                @click="ep._open = !ep._open"
+                @keydown.enter.prevent="ep._open = !ep._open"
+                @keydown.space.prevent="ep._open = !ep._open"
+              >
                 <v-chip
                   :color="methodColor(ep.method)"
                   size="small"
@@ -65,15 +80,21 @@
                           <td><v-chip size="x-small" variant="outlined">{{ p.type || 'string' }}</v-chip></td>
                           <td><span :class="p.required ? 'text-error font-weight-bold' : 'text-medium-emphasis'">{{ p.required ? '是' : '否' }}</span></td>
                           <td><code v-if="p.default" class="pa-1 rounded text-primary">{{ p.default }}</code><span v-else class="text-medium-emphasis">--</span></td>
-                          <td>{{ p.description || '' }}</td>
+                          <td>{{ p.description || p.note || '' }}</td>
                         </tr>
                       </tbody>
                     </v-table>
                   </template>
 
-                  <template v-if="ep.responses">
+                  <template v-if="ep.example_request">
+                    <div class="text-overline font-weight-bold text-medium-emphasis mb-2 mt-5">请求示例</div>
+                    <pre v-if="ep.example_request.curl" class="text-caption pa-4 rounded-lg response-block mb-2">{{ ep.example_request.curl }}</pre>
+                    <pre v-if="ep.example_request.python" class="text-caption pa-4 rounded-lg response-block">{{ ep.example_request.python }}</pre>
+                  </template>
+
+                  <template v-if="ep.responses || ep.example_response">
                     <div class="text-overline font-weight-bold text-medium-emphasis mb-2 mt-5">响应示例</div>
-                    <pre class="text-caption pa-4 rounded-lg response-block">{{ JSON.stringify(ep.responses, null, 2) }}</pre>
+                    <pre class="text-caption pa-4 rounded-lg response-block">{{ JSON.stringify(ep.responses || ep.example_response, null, 2) }}</pre>
                   </template>
                 </div>
               </v-expand-transition>
@@ -91,12 +112,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getApiDocs } from '@/api/index.js'
 
 const loading = ref(true)
 const error = ref('')
 const apiData = ref(null)
+const apiMeta = computed(() => apiData.value?.api || {})
 
 function methodColor(method) {
   const map = { GET: 'success', POST: 'primary', PUT: 'warning', DELETE: 'error', PATCH: 'secondary' }
@@ -120,7 +142,8 @@ onMounted(async () => {
 <style scoped>
 .api-hero { background: linear-gradient(135deg, rgb(var(--v-theme-primary)) 0%, #42A5F5 100%); }
 .endpoint-divider { border-top: 1px solid rgb(var(--v-theme-surface-variant)); }
-.cat-header { background: rgb(var(--v-theme-primary-lighten-1)); }
+.cat-header { background: rgba(var(--v-theme-primary), 0.08); }
+.cat-header:hover { background: rgba(var(--v-theme-primary), 0.12); }
 .ep-path { background: rgb(var(--v-theme-surface-variant)); }
 .response-block { background: rgb(var(--v-theme-surface-variant)); overflow-x:auto; max-height:300px; }
 .cursor-pointer { cursor: pointer; }

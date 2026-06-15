@@ -3,7 +3,7 @@
   <div>
     <div class="d-flex align-center mb-6">
       <v-icon size="32" color="primary" class="mr-3">mdi-chart-bar</v-icon>
-      <h2 class="text-h4 font-weight-bold">任务管理</h2>
+      <h1 class="text-h4 font-weight-bold">任务管理</h1>
     </div>
 
     <v-card class="mb-6" variant="flat" color="surface-variant">
@@ -64,7 +64,7 @@
           {{ statusLabel(task.status) }}
         </v-chip>
 
-        <v-btn icon="mdi-close" size="small" variant="text" color="medium-emphasis" @click="handleDeleteTask(task.task_id)" />
+        <v-btn icon="mdi-close" size="small" variant="text" color="medium-emphasis" aria-label="删除此任务记录" @click="handleDeleteTask(task.task_id)" />
       </v-card-text>
     </v-card>
   </div>
@@ -108,7 +108,7 @@ async function handleDeleteTask(taskId) {
 }
 
 async function handleClearTasks() {
-  if (!confirm('确定要清理所有已完成/失败的任务记录吗？')) return
+  if (!(await window.__confirm({ title: '清理任务记录', text: '确定要清理所有已完成/失败的任务记录吗？', confirmText: '清理', confirmColor: 'error' }))) return
   clearing.value = true
   try { await clearTasks(); await fetchTasks() } finally { clearing.value = false }
 }
@@ -121,7 +121,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 <style scoped>
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.status-dot.live { background: #22c55e; animation: pulse 2s infinite; }
+.status-dot.live { background: rgb(var(--v-theme-success)); animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
 .flex-1-1 { flex: 1 1 0; }
 </style>

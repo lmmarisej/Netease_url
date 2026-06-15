@@ -8,6 +8,9 @@ import * as directives from 'vuetify/directives'
 
 import App from './App.vue'
 import router from './router'
+import './styles/apple-theme.css'
+
+const appleFont = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif'
 
 const vuetify = createVuetify({
   locale: {
@@ -17,36 +20,46 @@ const vuetify = createVuetify({
   components,
   directives,
   defaults: {
+    global: {
+      style: { fontFamily: appleFont },
+    },
     VCard: {
       rounded: 'xl',
-      elevation: 2,
+      elevation: 0,
+      flat: true,
     },
     VBtn: {
-      rounded: 'lg',
+      rounded: 'xl',
+      flat: true,
+      class: 'text-none',
     },
     VChip: {
       rounded: 'lg',
     },
     VTextField: {
-      variant: 'outlined',
+      variant: 'solo-filled',
+      flat: true,
       density: 'comfortable',
       rounded: 'lg',
       hideDetails: 'auto',
     },
     VSelect: {
-      variant: 'outlined',
+      variant: 'solo-filled',
+      flat: true,
       density: 'comfortable',
       rounded: 'lg',
       hideDetails: 'auto',
     },
     VTextarea: {
-      variant: 'outlined',
+      variant: 'solo-filled',
+      flat: true,
       density: 'comfortable',
       rounded: 'lg',
     },
     VSwitch: {
-      color: 'primary',
+      color: 'success',
       density: 'comfortable',
+      inset: true,
       hideDetails: 'auto',
     },
     VTabs: {
@@ -56,6 +69,9 @@ const vuetify = createVuetify({
     VAlert: {
       rounded: 'lg',
     },
+    VDialog: {
+      VCard: { rounded: 'xl' },
+    },
   },
   theme: {
     defaultTheme: 'light',
@@ -63,37 +79,39 @@ const vuetify = createVuetify({
       light: {
         dark: false,
         colors: {
-          background: '#F5F5F5',
+          background: '#F2F2F7',
           surface: '#FFFFFF',
           'surface-bright': '#FFFFFF',
-          'surface-variant': '#E8EAED',
-          'on-surface-variant': '#3C4043',
-          primary: '#1976D2',
-          'primary-darken-1': '#1565C0',
-          secondary: '#5F6368',
-          accent: '#1976D2',
-          error: '#D93025',
-          info: '#1967D2',
-          success: '#188038',
-          warning: '#F9AB00',
+          'surface-light': '#F2F2F7',
+          'surface-variant': '#E5E5EA',
+          'on-surface-variant': '#3C3C43',
+          primary: '#007AFF',
+          'primary-darken-1': '#0066D6',
+          secondary: '#8E8E93',
+          accent: '#5856D6',
+          error: '#FF3B30',
+          info: '#5AC8FA',
+          success: '#34C759',
+          warning: '#FF9500',
         }
       },
       dark: {
         dark: true,
         colors: {
-          background: '#121212',
-          surface: '#1E1E1E',
-          'surface-bright': '#2C2C2C',
-          'surface-variant': '#2C2C2C',
-          'on-surface-variant': '#9AA0A6',
-          primary: '#8AB4F8',
-          'primary-darken-1': '#A8C7FA',
-          secondary: '#9AA0A6',
-          accent: '#8AB4F8',
-          error: '#F28B82',
-          info: '#8AB4F8',
-          success: '#81C995',
-          warning: '#FDD663',
+          background: '#000000',
+          surface: '#1C1C1E',
+          'surface-bright': '#2C2C2E',
+          'surface-light': '#2C2C2E',
+          'surface-variant': '#2C2C2E',
+          'on-surface-variant': '#EBEBF5',
+          primary: '#0A84FF',
+          'primary-darken-1': '#409CFF',
+          secondary: '#8E8E93',
+          accent: '#5E5CE6',
+          error: '#FF453A',
+          info: '#64D2FF',
+          success: '#30D158',
+          warning: '#FF9F0A',
         }
       }
     }

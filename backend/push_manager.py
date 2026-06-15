@@ -41,6 +41,37 @@ def _load_push_config() -> Dict[str, Any]:
     return {'pushes': []}
 
 
+def _iter_all_push_configs() -> List[Dict[str, Any]]:
+    """加载所有用户 + 全局的推送配置
+
+    事件常在后台/异步线程触发（下载、同步），此时无 Flask 请求上下文，
+    get_current_user() 取不到用户，导致只能读到全局配置而漏掉用户专属配置。
+    事件处理器改为遍历全部配置，确保任意线程下都能正确推送。
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [project_root / 'config' / 'push_config.json']
+
+    users_dir = project_root / 'config' / 'users'
+    if users_dir.exists():
+        for user_dir in users_dir.iterdir():
+            if user_dir.is_dir():
+                candidates.append(user_dir / 'push_config.json')
+
+    configs: List[Dict[str, Any]] = []
+    seen = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen or not path.exists():
+            continue
+        seen.add(key)
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                configs.append(json.load(f))
+        except Exception:
+            continue
+    return configs
+
+
 def _save_push_config(data: Dict[str, Any]) -> None:
     """保存推送配置（用户专属）"""
     config_path = _get_push_config_path()
@@ -99,9 +130,11 @@ class PushEventHandler:
     def handle(self, event: Event) -> None:
         """处理事件，匹配推送配置并发送"""
         try:
-            push_config = _load_push_config()
-            pushes = push_config.get('pushes', [])
             event_value = event.type.value
+            # 遍历所有用户 + 全局配置（规避后台线程无用户上下文问题）
+            pushes = []
+            for cfg in _iter_all_push_configs():
+                pushes.extend(cfg.get('pushes', []))
 
             for push in pushes:
                 if not push.get('enabled', False):

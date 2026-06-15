@@ -20,6 +20,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/lyrics',
+    name: 'LyricsQuery',
+    component: () => import('@/views/LyricsQuery.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/sync',
     name: 'PlaylistSync',
     component: () => import('@/views/PlaylistSync.vue'),
