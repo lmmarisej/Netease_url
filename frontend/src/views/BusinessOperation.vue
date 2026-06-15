@@ -42,7 +42,7 @@
                   <div class="text-caption text-medium-emphasis text-truncate">{{ song.artists||song.artist_string||'--' }}</div>
                   <div class="text-caption text-medium-emphasis text-truncate">{{ song.album||'' }}</div>
                 </div>
-                <div class="d-flex ga-1 flex-shrink-0"><v-btn v-if="song.source!=='qq'" size="small" variant="tonal" color="primary" @click="showDetail(song.id)">详情</v-btn><v-btn size="small" color="success" @click="openDownloadModal(song.id,song.name,song.source)">下载</v-btn></div>
+                <div class="d-flex ga-1 flex-shrink-0"><v-btn v-if="song.source!=='qq'" size="small" variant="text" @click="showDetail(song.id)">详情</v-btn><v-btn size="small" color="success" @click="openDownloadModal(song.id,song.name,song.source)">下载</v-btn></div>
               </div>
             </v-card-item>
           </v-card>
