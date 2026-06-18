@@ -224,3 +224,33 @@ defineEmits([
   'copy-response', 'clear-response',
 ])
 </script>
+
+<style scoped>
+.console-empty { flex: 1; }
+.console-tabs { flex-shrink: 0; border-bottom: 1px solid rgba(var(--v-border-color), 0.1); overflow-x: auto; white-space: nowrap; min-height: 36px; }
+.console-tab { border-right: 1px solid rgba(var(--v-border-color), 0.08); user-select: none; position: relative; }
+.console-tab:hover { background: rgba(var(--v-theme-surface-variant), 0.3); }
+.console-tab-active { background: rgba(var(--v-theme-primary), 0.08); border-bottom: 2px solid rgb(var(--v-theme-primary)); }
+.method-dot { font-size: 10px; font-weight: 700; }
+.tab-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close-btn { opacity: 0; transition: opacity 0.15s; }
+.console-tab:hover .tab-close-btn { opacity: 1; }
+.tab-context-menu { position: fixed; z-index: 9999; }
+.tab-context-item:hover { background: rgba(var(--v-theme-primary), 0.08); }
+.console-request-bar { flex-shrink: 0; }
+.method-select { max-width: 120px; }
+.url-input { flex: 1; }
+.send-btn { white-space: nowrap; }
+.console-config { flex-shrink: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 40%; }
+.config-scroll { flex: 1; overflow-y: auto; }
+.kv-table-header { background: rgba(var(--v-theme-surface-variant), 0.3); border-bottom: 1px solid rgba(var(--v-border-color), 0.08); }
+.kv-input { font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+.body-radio-group :deep(.v-selection-control) { margin-right: 16px; }
+.body-textarea :deep(textarea) { font-size: 13px; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+.console-response { flex: 1; display: flex; flex-direction: column; border-top: 1px solid rgba(var(--v-border-color), 0.12); overflow: hidden; }
+.console-response-empty { flex-shrink: 0; }
+.response-scroll { flex: 1; overflow-y: auto; overflow-x: auto; }
+.response-pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; }
+.response-status-bar { flex-shrink: 0; }
+.response-tabs { flex-shrink: 0; }
+</style>

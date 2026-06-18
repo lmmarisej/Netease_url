@@ -96,3 +96,46 @@ function filterEndpoints(endpoints) {
   )
 }
 </script>
+
+<style scoped>
+.sidebar-category-header {
+  user-select: none;
+}
+
+.sidebar-category-header:hover {
+  background: rgba(var(--v-theme-surface-variant), 0.4);
+}
+
+.sidebar-endpoint {
+  padding-left: 36px !important;
+  padding-right: 8px;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.sidebar-endpoint:hover {
+  background: rgba(var(--v-theme-surface-variant), 0.4);
+}
+
+.sidebar-endpoint-active {
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-left: 2px solid rgb(var(--v-theme-primary));
+}
+
+.method-badge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: center;
+}
+
+.ep-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>

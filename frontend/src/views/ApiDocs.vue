@@ -160,7 +160,7 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-/* ===== 左侧边栏 ===== */
+/* ===== 左侧边栏容器 ===== */
 .api-sidebar {
   width: 260px;
   min-width: 220px;
@@ -181,202 +181,13 @@ onMounted(async () => {
   overflow-x: hidden;
 }
 
-/* ===== 右侧控制台 ===== */
+/* ===== 右侧控制台容器 ===== */
 .api-console {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-}
-
-/* 空状态 */
-.console-empty {
-  flex: 1;
-}
-
-/* Tab 栏 */
-.console-tabs {
-  flex-shrink: 0;
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.1);
-  overflow-x: auto;
-  white-space: nowrap;
-  min-height: 36px;
-}
-
-/* 请求栏 */
-.console-request-bar {
-  flex-shrink: 0;
-}
-
-/* 参数配置区 */
-.console-config {
-  flex-shrink: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  max-height: 40%;
-}
-
-.config-scroll {
-  flex: 1;
-  overflow-y: auto;
-}
-
-/* 响应面板 */
-.console-response {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid rgba(var(--v-border-color), 0.12);
-  overflow: hidden;
-}
-
-.console-response-empty {
-  flex-shrink: 0;
-}
-
-.response-scroll {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: auto;
-}
-
-.response-pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
-}
-
-.response-status-bar {
-  flex-shrink: 0;
-}
-
-.response-tabs {
-  flex-shrink: 0;
-}
-
-/* ===== 侧边栏样式 ===== */
-.sidebar-category-header {
-  user-select: none;
-}
-
-.sidebar-category-header:hover {
-  background: rgba(var(--v-theme-surface-variant), 0.4);
-}
-
-.sidebar-endpoint {
-  padding-left: 44px !important;
-  user-select: none;
-  transition: background 0.15s;
-}
-
-.sidebar-endpoint:hover {
-  background: rgba(var(--v-theme-surface-variant), 0.4);
-}
-
-.sidebar-endpoint-active {
-  background: rgba(var(--v-theme-primary), 0.08);
-  border-left: 2px solid rgb(var(--v-theme-primary));
-}
-
-.method-badge {
-  font-size: 10px;
-  font-weight: 700;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  padding: 1px 5px;
-  border-radius: 3px;
-  white-space: nowrap;
-  min-width: 36px;
-  text-align: center;
-}
-
-.ep-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ===== Tab 栏样式 ===== */
-.console-tab {
-  border-right: 1px solid rgba(var(--v-border-color), 0.08);
-  user-select: none;
-  position: relative;
-}
-
-.console-tab:hover {
-  background: rgba(var(--v-theme-surface-variant), 0.3);
-}
-
-.console-tab-active {
-  background: rgba(var(--v-theme-primary), 0.08);
-  border-bottom: 2px solid rgb(var(--v-theme-primary));
-}
-
-.method-dot {
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.tab-label {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-close-btn {
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.console-tab:hover .tab-close-btn {
-  opacity: 1;
-}
-
-/* ===== 右键菜单 ===== */
-.tab-context-menu {
-  position: fixed;
-  z-index: 9999;
-}
-
-.tab-context-item:hover {
-  background: rgba(var(--v-theme-primary), 0.08);
-}
-
-/* ===== 请求栏 ===== */
-.method-select {
-  max-width: 120px;
-}
-
-.url-input {
-  flex: 1;
-}
-
-.send-btn {
-  white-space: nowrap;
-}
-
-/* ===== 参数/Header/Body ===== */
-.kv-table-header {
-  background: rgba(var(--v-theme-surface-variant), 0.3);
-  border-bottom: 1px solid rgba(var(--v-border-color), 0.08);
-}
-
-.kv-input {
-  font-size: 13px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.body-radio-group :deep(.v-selection-control) {
-  margin-right: 16px;
-}
-
-.body-textarea :deep(textarea) {
-  font-size: 13px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
 
 /* ===== 滚动条美化 ===== */
