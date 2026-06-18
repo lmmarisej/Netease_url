@@ -29,7 +29,7 @@ export function useApiTabs(apiMeta) {
       return
     }
 
-    const baseUrl = apiMeta.value?.base_url || 'http://127.0.0.1:5000'
+    const baseUrl = apiMeta.value?.base_url || window.location.origin
     const defaultUrl = `${baseUrl}${ep.path}`
 
     const params = (ep.parameters || []).map(p => ({
