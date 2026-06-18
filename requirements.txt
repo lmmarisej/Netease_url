@@ -31,3 +31,6 @@ numpy>=2.0.0
 pandas>=3.0.0
 python-dotenv>=1.0.0
 soundfile>=0.14.0
+snownlp>=0.12.3
+torch>=2.0.0
+panns-inference>=0.1.1
