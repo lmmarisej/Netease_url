@@ -3,6 +3,22 @@
     {
       "username": "admin",
       "password": "admin123"
+    },
+    {
+      "username": "testuser1",
+      "password": "test123456"
+    },
+    {
+      "username": "flasktest",
+      "password": "test9999"
+    },
+    {
+      "username": "finalv2",
+      "password": "test123456"
+    },
+    {
+      "username": "musician",
+      "password": "music999"
     }
   ]
 }

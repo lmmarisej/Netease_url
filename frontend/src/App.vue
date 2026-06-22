@@ -141,7 +141,7 @@ const route = useRoute()
 // 仅在小屏手机(<960px)折叠为抽屉，其余宽度侧边栏常驻不折叠
 const { smAndDown: isCompact } = useDisplay()
 const isDark = computed(() => theme.global.current.value.dark)
-const isLoginPage = computed(() => route.path === '/login')
+const isLoginPage = computed(() => route.path === '/login' || route.path === '/register')
 const currentUser = computed(() => localStorage.getItem('username') || '')
 
 // 抽屉：桌面/平板默认常驻展开，小屏手机默认收起；切换断点时同步

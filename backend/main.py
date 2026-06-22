@@ -56,7 +56,8 @@ try:
     from auth import (
         verify_credentials, generate_token, verify_token,
         get_current_user, set_current_user, login_required,
-        get_user_config_path, get_user_downloads_dir, get_user_config_dir
+        get_user_config_path, get_user_downloads_dir, get_user_config_dir,
+        register_user
     )
 except ImportError as e:
     print(f"导入模块失败: {e}")
@@ -598,6 +599,7 @@ def serve_frontend(path):
 # 无需认证的 API 路径白名单
 AUTH_WHITELIST = {
     '/api/auth/login',
+    '/api/auth/register',
     '/api/auth/verify',
     '/api/health',
     '/api/info',
@@ -720,6 +722,43 @@ def auth_login():
     except Exception as e:
         api_service.logger.error(f"登录异常: {e}")
         return APIResponse.error(f"登录失败: {str(e)}", 500)
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def auth_register():
+    """用户注册 API
+
+    Request JSON:
+        { "username": "...", "password": "..." }
+
+    Response (成功):
+        { "status": 200, "success": true, "data": { "token": "...", "username": "..." }, "message": "注册成功" }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username or not password:
+            return APIResponse.error("用户名和密码不能为空", 400)
+
+        success, message = register_user(username, password)
+        if not success:
+            return APIResponse.error(message, 409)
+
+        # 注册成功 → 自动签发 Token，进入登录态
+        token = generate_token(username)
+        set_current_user(username)
+
+        api_service.logger.info(f"用户注册并自动登录: {username}")
+        return APIResponse.success({
+            'token': token,
+            'username': username,
+        }, message)
+
+    except Exception as e:
+        api_service.logger.error(f"注册异常: {e}")
+        return APIResponse.error(f"注册失败: {str(e)}", 500)
 
 
 @app.route('/api/auth/verify', methods=['GET'])

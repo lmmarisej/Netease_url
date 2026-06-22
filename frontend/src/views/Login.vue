@@ -60,6 +60,13 @@
                   登 录
                 </v-btn>
               </v-form>
+
+              <div class="text-center mt-4">
+                <span class="text-body-2 text-medium-emphasis">没有账号？</span>
+                <router-link to="/register" class="text-primary text-body-2 font-weight-medium text-decoration-none ml-1">
+                  立即注册
+                </router-link>
+              </div>
             </v-card>
           </v-col>
         </v-row>
