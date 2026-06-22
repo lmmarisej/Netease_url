@@ -15,6 +15,7 @@ def persist_track(
     features: dict,
     lyrics: str | None,
     panns_tags: list[dict],
+    llm_tags: list[str] | None = None,
     username: str = "admin",
 ) -> tuple:
     """
@@ -22,11 +23,11 @@ def persist_track(
 
     1. INSERT OR IGNORE music_tracks → 获取 track_id
     2. INSERT OR REPLACE track_audio_features（7 维评分）
-    3. DELETE 旧标签 + INSERT track_tags
+    3. DELETE 旧标签 + INSERT track_tags（panns + llm）
     4. INSERT OR IGNORE user_track_behaviors（绝不覆盖用户行为数据）
 
     Returns: (s_tempo, s_energy, s_bright, s_rhythm, s_tonal,
-              s_contrast, s_sentiment, panns_tags)
+              s_contrast, s_sentiment, panns_tags, llm_tags)
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -69,6 +70,13 @@ def persist_track(
             "VALUES (?, ?, ?, 'panns')",
             [(track_id, t["tag_name"], t["confidence"]) for t in panns_tags],
         )
+    if llm_tags:
+        conn.executemany(
+            "INSERT OR REPLACE INTO track_tags "
+            "(track_id, tag_name, confidence, category) "
+            "VALUES (?, ?, 100, 'llm')",
+            [(track_id, tag, 100) for tag in llm_tags],
+        )
 
     # 4. 行为埋点（INSERT OR IGNORE — 绝不覆盖 Node.js 写入的真实数据）
     conn.execute(
@@ -78,4 +86,4 @@ def persist_track(
     )
 
     return (s_tempo, s_energy, s_bright, s_rhythm_v, s_tonal,
-            s_contrast, s_sentiment, panns_tags)
+            s_contrast, s_sentiment, panns_tags, llm_tags or [])

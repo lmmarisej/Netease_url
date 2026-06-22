@@ -28,6 +28,26 @@ def extract_metadata(file_path: str) -> dict[str, str]:
     return meta
 
 
+def _get_text_from_tag_value(val) -> str:
+    """从 mutagen 标签值安全提取文本。
+
+    USLT 对象使用 .text 属性，普通值转 str()。
+    """
+    if val is None:
+        return ""
+    if hasattr(val, "text"):
+        return str(val.text) if val.text else ""
+    if isinstance(val, list):
+        texts = []
+        for item in val:
+            if hasattr(item, "text"):
+                texts.append(str(item.text))
+            else:
+                texts.append(str(item))
+        return "\n".join(t for t in texts if t.strip())
+    return str(val)
+
+
 def extract_lyrics(file_path: str) -> str | None:
     """读取 MP3 USLT / FLAC LYRICS / M4A (c)lyr 内嵌歌词。"""
     try:
@@ -38,21 +58,38 @@ def extract_lyrics(file_path: str) -> str | None:
         audio = MutagenFile(file_path)
         if audio is None or not hasattr(audio, "tags") or not audio.tags:
             return None
+
+        # ID3 USLT 标签
         for tag_name in ("USLT::eng", "USLT::XXX", "USLT::zho"):
             uslt = audio.tags.get(tag_name)
             if uslt:
-                return str(uslt)
+                text = _get_text_from_tag_value(uslt)
+                if text.strip():
+                    return text
+
+        # 兼容其他 USLT 语言代码
         for key in audio.tags:
             if key.startswith("USLT:"):
-                return str(audio.tags[key])
+                val = audio.tags[key]
+                text = _get_text_from_tag_value(val)
+                if text.strip():
+                    return text
+
+        # FLAC / APE lyrics
         for lk in ("lyrics", "LYRICS"):
             val = audio.tags.get(lk)
             if val:
-                text = str(val[0]) if isinstance(val, list) else str(val)
+                text = _get_text_from_tag_value(val)
                 if text.strip():
                     return text
+
+        # M4A (c)lyr
         if "\xa9lyr" in audio.tags:
-            return str(audio.tags["\xa9lyr"][0])
+            val = audio.tags["\xa9lyr"]
+            text = _get_text_from_tag_value(val)
+            if text.strip():
+                return text
+
     except Exception:
         pass
     return None

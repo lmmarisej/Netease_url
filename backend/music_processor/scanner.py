@@ -8,6 +8,7 @@ from . import config
 from . import database
 from . import demucs
 from . import features as feats
+from . import llm
 from . import metadata as meta_mod
 from . import panns
 from . import persistence
@@ -85,10 +86,18 @@ def scan_and_process(
             except Exception:
                 print(f"  [PANNs] 跳过: {traceback.format_exc(limit=1)}")
 
+            # LLM 歌词意境分析（独立异常保护）
+            llm_tags: list[str] = []
+            if lyrics and len(lyrics.strip()) >= 20:
+                try:
+                    llm_tags = llm.analyze_lyrics_via_llm(lyrics)
+                except Exception:
+                    print(f"  [LLM] 跳过: {traceback.format_exc(limit=1)}")
+
             # 事务内原子写入
             scores = persistence.persist_track(
                 conn, abs_path, meta, features, lyrics,
-                panns_tags, username,
+                panns_tags, llm_tags, username,
             )
             conn.commit()
             existing.add(abs_path)
@@ -106,7 +115,7 @@ def scan_and_process(
 
             # 打印
             s_tempo, s_energy, s_bright, s_rhythm_v, s_tonal, \
-                s_contrast, s_sentiment, pts = scores
+                s_contrast, s_sentiment, pts, ltags = scores
             print(f"       → 速度:{s_tempo:>3}  能量:{s_energy:>3}  "
                   f"明亮:{s_bright:>3}  节奏:{s_rhythm_v:>3}  "
                   f"音调:{s_tonal:>3}")
@@ -120,6 +129,8 @@ def scan_and_process(
                 print(f"  🏷 {tag_str}")
             else:
                 print()
+            if ltags:
+                print(f"         🧠 LLM 意境标签: {', '.join(ltags)}")
             success_count += 1
 
         except Exception:
