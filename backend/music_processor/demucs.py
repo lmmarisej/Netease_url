@@ -44,15 +44,47 @@ def analyze_demucs_async(
 
 
 def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
-    """核心分离流程：subprocess 调用 demucs → RMS 评分 → DB 更新 → 清理。"""
+    """核心分离流程：soundfile 转 WAV → subprocess 调用 demucs → RMS 评分 → DB 更新 → 清理。"""
+
+    import numpy as np
+    import soundfile as sf
+
     start_time = time.time()
 
-    # 1. 创建临时输出目录
+    # 1. 创建临时目录
     out_dir = tempfile.mkdtemp(prefix="demucs_")
-    model = "htdemucs"  # Hybrid Transformer Demucs
+    model = "htdemucs"
+    wav_path = None  # 临时 WAV，最后清理
 
     try:
-        # 2. 双 stem 模式（人声+伴奏，速度快）
+        # 2. 用 soundfile 将任意格式转 WAV（绕过 torchcodec/FFmpeg 依赖）
+        logger.info(
+            f"[Demucs] 读取音频 track_id={track_id}..."
+        )
+        try:
+            data, sr = sf.read(file_path, dtype="float32", always_2d=True)
+            # demucs 期望 stereo float32 WAV
+            wav_tmp = tempfile.NamedTemporaryFile(
+                suffix=".wav", prefix="demucs_in_", delete=False
+            )
+            wav_path = wav_tmp.name
+            wav_tmp.close()
+            sf.write(wav_path, data, sr, subtype="FLOAT")
+            input_for_demucs = wav_path
+            logger.info(
+                f"[Demucs] 已转 WAV: {wav_path} (sr={sr}, shape={data.shape})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[Demucs] soundfile 读取失败 track_id={track_id}: {e}"
+            )
+            _cleanup_cache(out_dir, track_id)
+            if wav_path and Path(wav_path).exists():
+                try: Path(wav_path).unlink()
+                except: pass
+            raise
+
+        # 3. 双 stem 模式
         logger.info(
             f"[Demucs] 开始分离 track_id={track_id}, model={model}"
         )
@@ -62,15 +94,23 @@ def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
             "-j", "2",
             "-n", model,
             "-o", out_dir,
-            file_path,
+            input_for_demucs,
         ]
+        # 确保 FFmpeg 在 PATH 中（torchcodec 依赖）
+        env = os.environ.copy()
+        ffmpeg_bin = str(Path(os.environ.get("LOCALAPPDATA", "")) / "ffmpeg_shared")
+        if Path(ffmpeg_bin).exists():
+            candidates = list(Path(ffmpeg_bin).glob("*/bin"))
+            if candidates:
+                env["PATH"] = str(candidates[0]) + os.pathsep + env.get("PATH", "")
         try:
             subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=600,  # 10 分钟
+                timeout=600,
                 check=True,
+                env=env,
             )
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError,
                 FileNotFoundError) as e:
@@ -78,10 +118,13 @@ def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
                 f"[Demucs] 双 stem 分离失败 track_id={track_id}: {e}"
             )
             _cleanup_cache(out_dir, track_id)
+            if wav_path and Path(wav_path).exists():
+                try: Path(wav_path).unlink()
+                except: pass
             raise
 
-        # 3. 定位分离结果文件
-        stem = Path(os.path.basename(file_path))
+        # 3. 定位分离结果文件（demucs 输出目录名=输入 WAV 的 stem）
+        stem = Path(os.path.basename(input_for_demucs))
         vocals_path = (
             Path(out_dir) / model / stem.stem / "vocals.wav"
         )
@@ -132,6 +175,12 @@ def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
         )
     finally:
         _cleanup_cache(out_dir, track_id)
+        # 清理临时 WAV 文件
+        if wav_path and Path(wav_path).exists():
+            try:
+                Path(wav_path).unlink()
+            except Exception:
+                pass
 
 
 def _compute_rms_score(wav_path: Path, label: str = "") -> int:
