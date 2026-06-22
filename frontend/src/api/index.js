@@ -171,6 +171,18 @@ export function sendPush(data) {
   return api.post('/api/push/send', data)
 }
 
+export function getPushServers() {
+  return api.get('/api/push/servers')
+}
+
+export function savePushServers(data) {
+  return api.post('/api/push/servers', data)
+}
+
+export function getServerPresets() {
+  return api.get('/api/push/server-presets')
+}
+
 export function getEventsCatalog() {
   return api.get('/api/events/catalog')
 }

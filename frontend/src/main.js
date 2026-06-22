@@ -10,7 +10,7 @@ import App from './App.vue'
 import router from './router'
 import './styles/apple-theme.css'
 
-const appleFont = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif'
+const appleFont = '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, sans-serif'
 
 const vuetify = createVuetify({
   locale: {

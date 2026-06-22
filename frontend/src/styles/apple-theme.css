@@ -4,8 +4,8 @@
    ============================================================ */
 
 :root {
-  --apple-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, sans-serif;
+  --apple-font: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, sans-serif;
 
   /* 8pt 间距栅格 */
   --sp-1: 4px;
