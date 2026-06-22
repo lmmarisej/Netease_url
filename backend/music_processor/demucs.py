@@ -98,11 +98,14 @@ def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
         ]
         # 确保 FFmpeg 在 PATH 中（torchcodec 依赖）
         env = os.environ.copy()
-        ffmpeg_bin = str(Path(os.environ.get("LOCALAPPDATA", "")) / "ffmpeg_shared")
-        if Path(ffmpeg_bin).exists():
-            candidates = list(Path(ffmpeg_bin).glob("*/bin"))
-            if candidates:
-                env["PATH"] = str(candidates[0]) + os.pathsep + env.get("PATH", "")
+        ffmpeg_base = Path(os.environ.get("LOCALAPPDATA", "")) / "ffmpeg_shared"
+        if ffmpeg_base.exists():
+            for d in ffmpeg_base.iterdir():
+                if d.is_dir():
+                    bin_dir = d / "bin"
+                    if bin_dir.exists():
+                        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+                        break
         try:
             subprocess.run(
                 cmd,

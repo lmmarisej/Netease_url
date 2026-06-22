@@ -247,9 +247,19 @@ async function toggleTag(tag) {
 }
 
 function playTrack(track) {
-  const fn = track.file_path ? track.file_path.split('/').pop()?.split('\\').pop() : null
-  if (fn && window.__playAudio) {
+  if (!track?.file_path) {
+    window.__snackbar?.('无法获取文件路径', 'warning')
+    return
+  }
+  const fn = track.file_path.split('/').pop()?.split('\\').pop()
+  if (!fn) {
+    window.__snackbar?.('无法解析文件名', 'warning')
+    return
+  }
+  if (window.__playAudio) {
     window.__playAudio(fn)
+  } else {
+    window.__snackbar?.('音频播放器未就绪', 'warning')
   }
 }
 
