@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import config
 from . import database
+from . import demucs
 from . import features as feats
 from . import metadata as meta_mod
 from . import panns
@@ -91,6 +92,17 @@ def scan_and_process(
             )
             conn.commit()
             existing.add(abs_path)
+
+            # Demucs 后台异步分离（不阻塞主循环）
+            try:
+                row = conn.execute(
+                    "SELECT id FROM music_tracks WHERE file_path = ?",
+                    (abs_path,),
+                ).fetchone()
+                if row:
+                    demucs.analyze_demucs_async(row[0], abs_path, str(db_path))
+            except Exception:
+                print(f"  [Demucs] 调度失败: {traceback.format_exc(limit=1)}")
 
             # 打印
             s_tempo, s_energy, s_bright, s_rhythm_v, s_tonal, \

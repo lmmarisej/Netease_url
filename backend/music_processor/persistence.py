@@ -54,8 +54,9 @@ def persist_track(
         INSERT OR REPLACE INTO track_audio_features
             (track_id, score_tempo, score_energy, score_brightness,
              score_rhythm, score_tonality, score_energy_contrast,
-             score_lyric_sentiment, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             score_lyric_sentiment, score_vocal_dominant, score_sub_bass,
+             updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     """, (track_id, s_tempo, s_energy, s_bright, s_rhythm_v, s_tonal,
           s_contrast, s_sentiment, now))
 

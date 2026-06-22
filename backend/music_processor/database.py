@@ -33,6 +33,8 @@ def init_database(db_path: Path) -> sqlite3.Connection:
             score_tonality        INTEGER,
             score_energy_contrast INTEGER,
             score_lyric_sentiment INTEGER DEFAULT 50,
+            score_vocal_dominant  INTEGER DEFAULT 0,
+            score_sub_bass        INTEGER DEFAULT 0,
             updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(track_id) REFERENCES music_tracks(id) ON DELETE CASCADE
         )
@@ -75,4 +77,25 @@ def init_database(db_path: Path) -> sqlite3.Connection:
     """)
 
     conn.commit()
+
+    # 安全迁移：旧数据库自动追加缺失的列
+    _migrate_add_column(conn, "track_audio_features",
+                        "score_vocal_dominant", "INTEGER DEFAULT 0")
+    _migrate_add_column(conn, "track_audio_features",
+                        "score_sub_bass", "INTEGER DEFAULT 0")
+
     return conn
+
+
+def _migrate_add_column(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    col_type: str,
+) -> None:
+    """安全添加列：使用 PRAGMA table_info 检查是否存在，不存在则 ALTER TABLE。"""
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        conn.commit()
