@@ -8,6 +8,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -56,7 +57,7 @@ def _run_demucs(track_id: int, file_path: str, db_path: str) -> None:
             f"[Demucs] 开始分离 track_id={track_id}, model={model}"
         )
         cmd = [
-            "demucs",
+            sys.executable, "-m", "demucs.separate",
             "--two-stems", "vocals",
             "-j", "2",
             "-n", model,
