@@ -163,6 +163,7 @@ const menuItems = [
   { to: '/sync', icon: 'mdi-playlist-music', title: '歌单同步' },
   { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
   { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },
+  { to: '/radar', icon: 'mdi-dna', title: '口味雷达' },
   { to: '/tasks', icon: 'mdi-chart-bar', title: '任务管理' },
   { to: '/logs', icon: 'mdi-text-box-outline', title: '运行日志' },
   { to: '/api-docs', icon: 'mdi-code-json', title: 'API 文档' },

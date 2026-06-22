@@ -16,6 +16,7 @@ import time
 import traceback
 import os
 import json
+import sqlite3
 import tempfile
 import shutil
 from dataclasses import dataclass
@@ -583,6 +584,204 @@ def public_lyrics_query():
 
     return Response(_fix_ts(lrc), mimetype='text/plain; charset=utf-8')
 
+
+# ==================== 音乐口味雷达 API ====================
+
+@app.route('/api/user/<username>/taste-radar', methods=['GET'])
+@login_required
+def api_taste_radar(username):
+    """口味雷达 — 聚合用户喜欢歌曲的 6 维特征评分"""
+    try:
+        db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
+        if not db_path.exists():
+            return APIResponse.success({
+                'radar': [50, 50, 50, 50, 50, 50],
+                'count': 0
+            }, "暂无特征数据")
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        # 检测列是否存在（兼容旧数据库）
+        cur = conn.execute("PRAGMA table_info(track_audio_features)")
+        columns = {row[1] for row in cur.fetchall()}
+        has_vocal = 'score_vocal_dominant' in columns
+        has_bass = 'score_sub_bass' in columns
+
+        # 构建查询
+        select_parts = [
+            "ROUND(AVG(COALESCE(f.score_tempo, 50)))",
+            "ROUND(AVG(COALESCE(f.score_energy, 50)))",
+            "ROUND(AVG(COALESCE(f.score_brightness, 50)))",
+            "ROUND(AVG(COALESCE(f.score_energy_contrast, 50)))",
+        ]
+        if has_bass:
+            select_parts.append("ROUND(AVG(COALESCE(f.score_sub_bass, 50)))")
+        else:
+            select_parts.append("50")
+        if has_vocal:
+            select_parts.append("ROUND(AVG(COALESCE(f.score_vocal_dominant, 50)))")
+        else:
+            select_parts.append("50")
+
+        sql = f"""
+            SELECT {', '.join(select_parts)}
+            FROM user_track_behaviors b
+            INNER JOIN track_audio_features f ON b.track_id = f.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+        """
+        cur = conn.execute(sql, (username,))
+        row = cur.fetchone()
+        conn.close()
+
+        if row and any(v != 50 for v in row):
+            radar = [int(v) for v in row]
+            count_cur = sqlite3.connect(str(db_path)).execute(
+                "SELECT COUNT(*) FROM user_track_behaviors WHERE username=? AND is_favorite=1",
+                (username,)
+            )
+            count = count_cur.fetchone()[0]
+            return APIResponse.success({
+                'radar': radar,
+                'count': count
+            }, f"口味雷达数据获取成功（{count}首）")
+        else:
+            return APIResponse.success({
+                'radar': [50, 50, 50, 50, 50, 50],
+                'count': 0
+            }, "暂无喜欢歌曲数据")
+
+    except Exception as e:
+        api_service.logger.error(f"口味雷达异常: {e}")
+        return APIResponse.success({
+            'radar': [50, 50, 50, 50, 50, 50],
+            'count': 0
+        }, f"获取失败: {str(e)}")
+
+
+@app.route('/api/user/<username>/taste-top-tracks', methods=['GET'])
+@login_required
+def api_taste_top_tracks(username):
+    """TOP 10 共鸣单曲 — 六维均值排名"""
+    try:
+        db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
+        if not db_path.exists():
+            return APIResponse.success([], "暂无数据")
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("""
+            SELECT mt.title, mt.artist, mt.file_path,
+                   ROUND((
+                       COALESCE(f.score_tempo,50) + COALESCE(f.score_energy,50) +
+                       COALESCE(f.score_brightness,50) + COALESCE(f.score_energy_contrast,50) +
+                       COALESCE(f.score_sub_bass,50) + COALESCE(f.score_vocal_dominant,50)
+                   ) / 6.0, 1) AS resonance
+            FROM user_track_behaviors b
+            INNER JOIN track_audio_features f ON b.track_id = f.track_id
+            INNER JOIN music_tracks mt ON mt.id = b.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+            ORDER BY resonance DESC
+            LIMIT 10
+        """, (username,))
+        rows = cur.fetchall()
+        conn.close()
+
+        tracks = []
+        for i, r in enumerate(rows):
+            tracks.append({
+                'rank': i + 1,
+                'title': r['title'],
+                'artist': r['artist'],
+                'file_path': r['file_path'],
+                'resonance': r['resonance'],
+            })
+        return APIResponse.success(tracks, f"TOP {len(tracks)} 共鸣单曲")
+    except Exception as e:
+        api_service.logger.error(f"TOP 共鸣异常: {e}")
+        return APIResponse.success([], f"获取失败: {str(e)}")
+
+
+@app.route('/api/user/<username>/taste-top-tags', methods=['GET'])
+@login_required
+def api_taste_top_tags(username):
+    """高频 AI 标签 — GROUP BY tag_name/category"""
+    try:
+        db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
+        if not db_path.exists():
+            return APIResponse.success([], "暂无数据")
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("""
+            SELECT tt.tag_name, tt.category,
+                   COUNT(*) AS freq,
+                   ROUND(AVG(tt.confidence)) AS avg_confidence
+            FROM user_track_behaviors b
+            JOIN track_tags tt ON tt.track_id = b.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+            GROUP BY tt.tag_name, tt.category
+            ORDER BY freq DESC
+            LIMIT 20
+        """, (username,))
+        rows = cur.fetchall()
+        conn.close()
+
+        tags = [{
+            'tag_name': r['tag_name'],
+            'category': r['category'],
+            'freq': r['freq'],
+            'avg_confidence': r['avg_confidence'],
+        } for r in rows]
+        return APIResponse.success(tags, f"TOP {len(tags)} 标签")
+    except Exception as e:
+        api_service.logger.error(f"TOP 标签异常: {e}")
+        return APIResponse.success([], f"获取失败: {str(e)}")
+
+
+@app.route('/api/tags/<tag_name>/tracks', methods=['GET'])
+@login_required
+def api_tag_tracks(tag_name):
+    """标签反查歌曲 — 按 confidence 降序"""
+    try:
+        from urllib.parse import unquote
+        tag_name = unquote(tag_name)
+        db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
+        if not db_path.exists():
+            return APIResponse.success([], "暂无数据")
+
+        username = get_current_user()
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("""
+            SELECT mt.id AS track_id, mt.title, mt.artist, mt.file_path,
+                   tt.confidence,
+                   CASE WHEN b.is_favorite = 1 THEN 1 ELSE 0 END AS is_favorite
+            FROM track_tags tt
+            JOIN music_tracks mt ON mt.id = tt.track_id
+            LEFT JOIN user_track_behaviors b ON b.track_id = tt.track_id AND b.username = ?
+            WHERE tt.tag_name = ?
+            ORDER BY tt.confidence DESC
+            LIMIT 50
+        """, (username or 'admin', tag_name))
+        rows = cur.fetchall()
+        conn.close()
+
+        tracks = [{
+            'track_id': r['track_id'],
+            'title': r['title'],
+            'artist': r['artist'],
+            'file_path': r['file_path'],
+            'confidence': r['confidence'],
+            'is_favorite': bool(r['is_favorite']),
+        } for r in rows]
+        return APIResponse.success(tracks, f"标签 '{tag_name}' 关联 {len(tracks)} 首歌曲")
+    except Exception as e:
+        api_service.logger.error(f"标签反查异常: {e}")
+        return APIResponse.success([], f"获取失败: {str(e)}")
+
+
+# ==================== SPA 前端路由 ====================
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')

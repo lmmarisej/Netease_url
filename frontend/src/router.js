@@ -50,6 +50,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/radar',
+    name: 'MusicRadar',
+    component: () => import('@/views/MusicRadar.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/tasks',
     name: 'Tasks',
     component: () => import('@/views/TaskMonitor.vue'),
