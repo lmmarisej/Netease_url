@@ -294,8 +294,25 @@
                 <v-icon size="18" color="#a78bfa">mdi-chart-bubble</v-icon>
                 <span class="card-title">10维 DNA 雷达</span>
                 <v-spacer />
-                <span class="card-badge">实时分析</span>
+                <template v-if="rebuildRunning">
+                  <span class="rebuild-progress-text">{{ rebuildProgress }}%</span>
+                  <v-progress-linear
+                    :model-value="rebuildProgress" color="primary" height="3"
+                    style="max-width:80px;margin:0 8px" rounded
+                  />
+                  <v-btn icon size="x-small" color="error" variant="text" title="终止重建" @click="cancelRebuild">
+                    <v-icon size="14">mdi-stop</v-icon>
+                  </v-btn>
+                </template>
+                <template v-else>
+                  <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-refresh"
+                    :loading="dnaLoading" @click="triggerRebuild">
+                    从我喜欢生成
+                  </v-btn>
+                </template>
               </div>
+              <!-- 重建消息 -->
+              <div v-if="rebuildRunning && rebuildMessage" class="rebuild-msg">{{ rebuildMessage }}</div>
               <div class="chart-wrap">
                 <v-chart :option="radarOption" autoresize style="width:100%;height:100%" />
               </div>
@@ -956,6 +973,13 @@ const dnaEmpty = ref(false)
 const trackCount = ref(0)
 const hoveredDim = ref(null)
 
+// ── DNA 重建状态 ──
+const rebuildTaskId = ref('')
+const rebuildProgress = ref(0)
+const rebuildMessage = ref('')
+const rebuildRunning = computed(() => !!rebuildTaskId.value)
+let _rebuildPollTimer = null
+
 const radarData = reactive({
   tempo: 0, energy: 0, brightness: 0, contrast: 0,
   sub_bass: 0, vocal: 0, sentiment: 0,
@@ -1060,6 +1084,62 @@ async function loadDnaData() {
   } finally {
     dnaLoading.value = false
   }
+}
+
+async function triggerRebuild() {
+  try {
+    const res = await api.post(`/api/user/${username.value}/taste-rebuild`)
+    const taskId = res.data?.data?.task_id || res.data?.task_id
+    if (!taskId) return window.__snackbar?.('启动重建失败', 'error')
+    rebuildTaskId.value = taskId
+    rebuildProgress.value = 0
+    rebuildMessage.value = '启动中...'
+    window.__snackbar?.('DNA 重建任务已启动', 'success')
+    _startRebuildPolling()
+  } catch (e) {
+    window.__snackbar?.('启动失败: ' + (e.message || '网络错误'), 'error')
+  }
+}
+
+async function cancelRebuild() {
+  if (!rebuildTaskId.value) return
+  try {
+    await api.post(`/api/tasks/${rebuildTaskId.value}/cancel`)
+    window.__snackbar?.('已发送终止信号', 'info')
+  } catch (e) {
+    window.__snackbar?.('终止失败: ' + (e.message || '网络错误'), 'error')
+  }
+}
+
+function _startRebuildPolling() {
+  _stopRebuildPolling()
+  _rebuildPollTimer = setInterval(async () => {
+    try {
+      const res = await api.get(`/api/tasks/${rebuildTaskId.value}`)
+      const task = res.data?.data || res.data
+      if (!task) return
+      rebuildProgress.value = task.progress || 0
+      rebuildMessage.value = task.message || ''
+      if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+        _stopRebuildPolling()
+        if (task.status === 'completed') {
+          window.__snackbar?.('DNA 重建完成！刷新数据...', 'success')
+          rebuildTaskId.value = ''
+          await loadDnaData()
+        } else if (task.status === 'failed') {
+          window.__snackbar?.('重建失败: ' + (task.error || task.message), 'error')
+          rebuildTaskId.value = ''
+        } else {
+          window.__snackbar?.('任务已取消', 'warning')
+          rebuildTaskId.value = ''
+        }
+      }
+    } catch { /* 静默 */ }
+  }, 2000)
+}
+
+function _stopRebuildPolling() {
+  if (_rebuildPollTimer) { clearInterval(_rebuildPollTimer); _rebuildPollTimer = null }
 }
 
 // ══════════════════════════════════════════════
@@ -1210,6 +1290,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopPlayTimer()
+  _stopRebuildPolling()
   if (currentTrack.track_id) logPlayback(true)
 })
 </script>
@@ -1345,6 +1426,9 @@ onBeforeUnmount(() => {
   background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2);
 }
 .card-badge.accent { background: rgba(245,158,11,0.1); color: #fbbf24; border-color: rgba(245,158,11,0.2); }
+
+.rebuild-progress-text { font-size: 0.75rem; font-weight: 600; color: #a78bfa; min-width: 32px; text-align: right; }
+.rebuild-msg { font-size: 0.7rem; color: var(--text-3); padding: 0 0 8px 26px; }
 
 /* ══════════════════════════════════════════════
    Tab 1：发现音乐 布局
