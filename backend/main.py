@@ -102,60 +102,10 @@ _liked_songs_cache = None
 _liked_songs_cookie_hash = None
 
 
-@dataclass
-class APIConfig:
-    """API配置类"""
-    host: str = '0.0.0.0'
-    port: int = 5000
-    debug: bool = False
-    downloads_dir: str = 'downloads'
-    download_save_local: bool = False
-    download_browser: bool = True
-    max_file_size: int = 500 * 1024 * 1024  # 500MB
-    request_timeout: int = 30
-    log_level: str = 'INFO'
-    cors_origins: str = '*'
-    # 定时同步配置
-    enable_sync: bool = False
-    playlist_ids: List[str] = None
-    sync_quality: str = 'lossless'
-    sync_interval: int = 3600
-    cron_expression: str = None
-    download_lyric_save_lrc: bool = True
-    sync_full_delete: bool = False
-    sync_dedup_files: bool = False
-    
-    def __post_init__(self):
-        if self.playlist_ids is None:
-            self.playlist_ids = []
+from api_core import APIConfig, APIResponse, set_project_root
 
-
-class APIResponse:
-    """API响应工具类"""
-    
-    @staticmethod
-    def success(data: Any = None, message: str = 'success', status_code: int = 200) -> Tuple[Dict[str, Any], int]:
-        """成功响应"""
-        response = {
-            'status': status_code,
-            'success': True,
-            'message': message
-        }
-        if data is not None:
-            response['data'] = data
-        return response, status_code
-    
-    @staticmethod
-    def error(message: str, status_code: int = 400, error_code: str = None) -> Tuple[Dict[str, Any], int]:
-        """错误响应"""
-        response = {
-            'status': status_code,
-            'success': False,
-            'message': message
-        }
-        if error_code:
-            response['error_code'] = error_code
-        return response, status_code
+# 设置项目根目录
+set_project_root(_PROJECT_ROOT)
 
 
 class MusicAPIService:
