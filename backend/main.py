@@ -590,71 +590,105 @@ def public_lyrics_query():
 @app.route('/api/user/<username>/taste-radar', methods=['GET'])
 @login_required
 def api_taste_radar(username):
-    """口味雷达 — 聚合用户喜欢歌曲的 6 维特征评分"""
+    """10 维全景音乐 DNA 谱图 — 物理声学 7 维 + 文化标签 3 维"""
     try:
         db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
         if not db_path.exists():
             return APIResponse.success({
-                'radar': [50, 50, 50, 50, 50, 50],
+                'radar': [50] * 10,
                 'count': 0
             }, "暂无特征数据")
 
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
 
-        # 检测列是否存在（兼容旧数据库）
+        # ── 第一步：7 个物理/情感字段 AVG 聚合 ──
         cur = conn.execute("PRAGMA table_info(track_audio_features)")
         columns = {row[1] for row in cur.fetchall()}
-        has_vocal = 'score_vocal_dominant' in columns
-        has_bass = 'score_sub_bass' in columns
 
-        # 构建查询
-        select_parts = [
-            "ROUND(AVG(COALESCE(f.score_tempo, 50)))",
-            "ROUND(AVG(COALESCE(f.score_energy, 50)))",
-            "ROUND(AVG(COALESCE(f.score_brightness, 50)))",
-            "ROUND(AVG(COALESCE(f.score_energy_contrast, 50)))",
-        ]
-        if has_bass:
-            select_parts.append("ROUND(AVG(COALESCE(f.score_sub_bass, 50)))")
-        else:
-            select_parts.append("50")
-        if has_vocal:
-            select_parts.append("ROUND(AVG(COALESCE(f.score_vocal_dominant, 50)))")
-        else:
-            select_parts.append("50")
+        def col_avg(name, fallback=50):
+            if name in columns:
+                return f"ROUND(AVG(COALESCE(f.{name}, {fallback})))"
+            return str(fallback)
 
-        sql = f"""
-            SELECT {', '.join(select_parts)}
+        sql_physical = f"""
+            SELECT {col_avg('score_tempo')},
+                   {col_avg('score_energy')},
+                   {col_avg('score_brightness')},
+                   {col_avg('score_energy_contrast')},
+                   {col_avg('score_sub_bass')},
+                   {col_avg('score_vocal_dominant')},
+                   {col_avg('score_lyric_sentiment')}
             FROM user_track_behaviors b
             INNER JOIN track_audio_features f ON b.track_id = f.track_id
             WHERE b.username = ? AND b.is_favorite = 1
         """
-        cur = conn.execute(sql, (username,))
+        cur = conn.execute(sql_physical, (username,))
         row = cur.fetchone()
+
+        physical = [int(v) for v in row] if row else [50] * 7
+
+        # ── 第二步：跨表标签频次归一化 → 3 个文化维度 ──
+        # 总收藏曲数
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM user_track_behaviors WHERE username=? AND is_favorite=1",
+            (username,)
+        )
+        total = cur.fetchone()[0] or 1  # 兜底避免除零
+
+        # 空间氛围感 — PANNs 'Ambient music'
+        cur = conn.execute("""
+            SELECT COUNT(DISTINCT tt.track_id)
+            FROM user_track_behaviors b
+            JOIN track_tags tt ON tt.track_id = b.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+              AND tt.tag_name = 'Ambient music'
+        """, (username,))
+        ambiance_count = cur.fetchone()[0] or 0
+        ambiance = min(100, round(ambiance_count / total * 100))
+
+        # 纯器乐倾向 — PANNs 'Classical music'
+        cur = conn.execute("""
+            SELECT COUNT(DISTINCT tt.track_id)
+            FROM user_track_behaviors b
+            JOIN track_tags tt ON tt.track_id = b.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+              AND tt.tag_name = 'Classical music'
+        """, (username,))
+        instrumental_count = cur.fetchone()[0] or 0
+        instrumental = min(100, round(instrumental_count / total * 100))
+
+        # 文化主题共鸣 — Ollama LLM 标签（国风/江湖/古风）
+        cur = conn.execute("""
+            SELECT COUNT(DISTINCT tt.track_id)
+            FROM user_track_behaviors b
+            JOIN track_tags tt ON tt.track_id = b.track_id
+            WHERE b.username = ? AND b.is_favorite = 1
+              AND tt.category = 'llm'
+              AND (tt.tag_name LIKE '%国风%' OR tt.tag_name LIKE '%江湖%' OR tt.tag_name LIKE '%古风%')
+        """, (username,))
+        cultural_count = cur.fetchone()[0] or 0
+        cultural = min(100, round(cultural_count / total * 100))
+
         conn.close()
 
-        if row and any(v != 50 for v in row):
-            radar = [int(v) for v in row]
-            count_cur = sqlite3.connect(str(db_path)).execute(
-                "SELECT COUNT(*) FROM user_track_behaviors WHERE username=? AND is_favorite=1",
-                (username,)
-            )
-            count = count_cur.fetchone()[0]
+        radar = physical + [ambiance, instrumental, cultural]
+
+        if total > 0:
             return APIResponse.success({
                 'radar': radar,
-                'count': count
-            }, f"口味雷达数据获取成功（{count}首）")
+                'count': total
+            }, f"DNA 谱图数据获取成功（{total}首）")
         else:
             return APIResponse.success({
-                'radar': [50, 50, 50, 50, 50, 50],
+                'radar': [50] * 10,
                 'count': 0
             }, "暂无喜欢歌曲数据")
 
     except Exception as e:
-        api_service.logger.error(f"口味雷达异常: {e}")
+        api_service.logger.error(f"DNA 谱图异常: {e}")
         return APIResponse.success({
-            'radar': [50, 50, 50, 50, 50, 50],
+            'radar': [50] * 10,
             'count': 0
         }, f"获取失败: {str(e)}")
 
@@ -662,7 +696,7 @@ def api_taste_radar(username):
 @app.route('/api/user/<username>/taste-top-tracks', methods=['GET'])
 @login_required
 def api_taste_top_tracks(username):
-    """TOP 10 共鸣单曲 — 六维均值排名"""
+    """TOP 10 共鸣单曲 — 7 维物理+情感均值排名"""
     try:
         db_path = Path(os.path.dirname(os.path.abspath(__file__))).parent / 'config' / 'music_vault.db'
         if not db_path.exists():
@@ -675,8 +709,9 @@ def api_taste_top_tracks(username):
                    ROUND((
                        COALESCE(f.score_tempo,50) + COALESCE(f.score_energy,50) +
                        COALESCE(f.score_brightness,50) + COALESCE(f.score_energy_contrast,50) +
-                       COALESCE(f.score_sub_bass,50) + COALESCE(f.score_vocal_dominant,50)
-                   ) / 6.0, 1) AS resonance
+                       COALESCE(f.score_sub_bass,50) + COALESCE(f.score_vocal_dominant,50) +
+                       COALESCE(f.score_lyric_sentiment,50)
+                   ) / 7.0, 1) AS resonance
             FROM user_track_behaviors b
             INNER JOIN track_audio_features f ON b.track_id = f.track_id
             INNER JOIN music_tracks mt ON mt.id = b.track_id

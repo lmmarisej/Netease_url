@@ -2,13 +2,13 @@
   <div class="radar-page">
     <div class="d-flex align-center mb-5">
       <v-icon size="32" color="primary" class="mr-3">mdi-dna</v-icon>
-      <h1 class="text-h4 font-weight-bold">口味雷达</h1>
+      <h1 class="text-h4 font-weight-bold">全景音乐DNA谱图</h1>
     </div>
 
     <!-- loading -->
     <div v-if="loading" class="text-center py-12">
       <v-progress-circular indeterminate color="primary" size="56"/>
-      <p class="text-body-2 text-medium-emphasis mt-3">正在分析你的音乐口味...</p>
+      <p class="text-body-2 text-medium-emphasis mt-3">正在解析你的音乐 DNA...</p>
     </div>
 
     <!-- error -->
@@ -18,7 +18,7 @@
     <div v-else-if="empty" class="text-center py-12">
       <v-icon size="64" class="mb-3" color="medium-emphasis">mdi-dna</v-icon>
       <p class="text-h6 mb-2">暂无喜欢歌曲数据</p>
-      <p class="text-body-2 text-medium-emphasis mb-4">去"音乐搜索"给喜欢的歌曲点个收藏吧</p>
+      <p class="text-body-2 text-medium-emphasis mb-4">去"音乐搜索"给喜欢的歌曲点个收藏，解锁你的 DNA 谱图</p>
     </div>
 
     <!-- content -->
@@ -31,15 +31,15 @@
             <div class="chart-wrap" ref="chartWrap">
               <v-chart :option="radarOption" autoresize style="width:100%;height:100%"/>
             </div>
-            <!-- 六维图例 -->
+            <!-- 十维图例 -->
             <div class="legend-row mt-3">
               <div v-for="d in dimensions" :key="d.key" class="legend-item">
                 <div class="legend-dot" :style="{background:d.color}"/>
-                <span class="text-caption">{{ d.label }} {{ radarData[d.key] }}</span>
+                <span class="text-caption">{{ d.label.split('\n')[0] }} {{ radarData[d.key] }}</span>
               </div>
             </div>
             <div class="text-caption text-medium-emphasis mt-2 text-center">
-              基于 {{ trackCount }} 首喜欢歌曲聚合
+              基于 {{ trackCount }} 首喜欢歌曲 · 10维全景DNA谱图
             </div>
           </div>
 
@@ -124,15 +124,23 @@ const loading = ref(true)
 const error = ref('')
 const empty = ref(false)
 const trackCount = ref(0)
-const radarData = reactive({ tempo: 0, energy: 0, brightness: 0, contrast: 0, sub_bass: 0, vocal: 0 })
+const radarData = reactive({
+  tempo: 0, energy: 0, brightness: 0, contrast: 0,
+  sub_bass: 0, vocal: 0, sentiment: 0,
+  ambiance: 0, instrumental: 0, cultural: 0,
+})
 
 const dimensions = [
-  { key: 'tempo', label: '速度律动', color: '#f59e0b' },
-  { key: 'energy', label: '能量爆发', color: '#ef4444' },
-  { key: 'brightness', label: '音色明亮', color: '#06b6d4' },
-  { key: 'contrast', label: '戏剧起伏', color: '#8b5cf6' },
-  { key: 'sub_bass', label: '低音轰炸', color: '#ec4899' },
-  { key: 'vocal', label: '人声主导', color: '#10b981' },
+  { key: 'tempo', label: '速度律动\nTempo', color: '#f59e0b', source: 'librosa' },
+  { key: 'energy', label: '能量爆发\nEnergy', color: '#ef4444', source: 'librosa' },
+  { key: 'brightness', label: '音色明亮\nBrightness', color: '#06b6d4', source: 'librosa' },
+  { key: 'contrast', label: '戏剧起伏\nContrast', color: '#8b5cf6', source: 'librosa' },
+  { key: 'sub_bass', label: '低音轰炸\nSub Bass', color: '#ec4899', source: 'Demucs' },
+  { key: 'vocal', label: '人声主导\nVocal', color: '#10b981', source: 'Demucs' },
+  { key: 'sentiment', label: '情感色彩\nSentiment', color: '#f97316', source: 'SnowNLP' },
+  { key: 'ambiance', label: '空间氛围\nAmbiance', color: '#14b8a6', source: 'PANNs' },
+  { key: 'instrumental', label: '纯器乐倾向\nInstrumental', color: '#a78bfa', source: 'PANNs' },
+  { key: 'cultural', label: '文化共鸣\nCultural', color: '#eab308', source: 'Ollama' },
 ]
 
 const radarOption = computed(() => ({
@@ -140,17 +148,18 @@ const radarOption = computed(() => ({
   radar: {
     shape: 'circle',
     center: ['50%', '50%'],
-    radius: '65%',
+    radius: '58%',
     splitNumber: 5,
     splitArea: { show: false },
     axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
     splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
     axisName: {
       color: '#a1a1aa',
-      fontSize: 12,
+      fontSize: 10,
+      lineHeight: 14,
       backgroundColor: 'rgba(12,12,18,0.85)',
       borderRadius: 4,
-      padding: [2, 6],
+      padding: [2, 4],
     },
     indicator: dimensions.map(d => ({
       name: d.label,
@@ -273,7 +282,7 @@ onMounted(() => loadData())
   border: 1px solid #27272a;
   border-radius: 12px;
 }
-.chart-wrap { width: 100%; height: 360px; }
+.chart-wrap { width: 100%; height: 440px; }
 .radar-layout {
   display: grid;
   grid-template-columns: 1fr 320px;
@@ -303,6 +312,6 @@ onMounted(() => loadData())
 
 @media (max-width: 860px) {
   .radar-layout { grid-template-columns: 1fr; }
-  .chart-wrap { height: 280px; }
+  .chart-wrap { height: 320px; }
 }
 </style>
