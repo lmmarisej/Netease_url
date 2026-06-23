@@ -16,16 +16,14 @@ RUN pip install --no-cache-dir \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     -r requirements.txt
 
-# 2. 预下载 PANNs 模型权重和标签（加速首次启动）
-COPY download_panns.py .
+# 2. 预装 wget（供 entrypoint 下载 PANNs 模型使用）
 RUN apt-get update && apt-get install -y --no-install-recommends wget && \
-    rm -rf /var/lib/apt/lists/* && \
-    python3 download_panns.py && \
-    rm download_panns.py
+    rm -rf /var/lib/apt/lists/*
 
-# 3. 复制后端代码并备份默认配置
+# 3. 复制后端代码、下载脚本并备份默认配置
 COPY backend/ ./backend/
 COPY config/ ./config/
+COPY download_panns.py .
 
 RUN cp -r /app/config /app/config_defaults && \
     mkdir -p /app/logs /app/downloads

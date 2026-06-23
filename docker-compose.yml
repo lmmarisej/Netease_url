@@ -8,10 +8,14 @@ services:
     ports:
       - "${PORT:-5000}:5000"
     volumes:
-      - ./downloads:/app/downloads
+      - /vol3/1000/音乐/网易云/downloads:/app/downloads
       - ./config:/app/config
       - ./logs:/app/logs
       - ./backend:/app/backend
+      - panns_data:/root/panns_data
     environment:
       - PORT=5000
     restart: unless-stopped
+
+volumes:
+  panns_data:
