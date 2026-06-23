@@ -71,7 +71,7 @@
 
       <template #append>
         <div class="pa-3 text-center">
-          <div class="text-caption text-medium-emphasis">v2.0</div>
+          <div class="text-caption text-medium-emphasis">v3.2</div>
         </div>
       </template>
     </v-navigation-drawer>
