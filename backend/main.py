@@ -581,6 +581,13 @@ def public_lyrics_query():
 
         # 第2步：代理网易云 API 搜索 + 获取歌词
         search_keyword = f"{title} {artist}".strip()
+        # 从 token 提取用户以确保 cookie 文件路径正确
+        token = _extract_token_from_request()
+        if token:
+            username = verify_token(token)
+            if username:
+                set_current_user(username)
+        api_service.cookie_manager.set_cookie_file(_get_user_cookie_path())
         cookies = api_service.cookie_manager.parse_cookies()
         if not cookies:
             return Response('', mimetype='text/plain; charset=utf-8')
