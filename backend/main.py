@@ -97,6 +97,9 @@ _NETEASE_HOT_CHART_ID = 3778678
 # ── 喜欢ID缓存 ──
 _liked_ids_cache = None
 _liked_ids_cookie_hash = None
+# ── 喜欢歌曲完整信息缓存（用于搜索） ──
+_liked_songs_cache = None
+_liked_songs_cookie_hash = None
 
 
 @dataclass
@@ -758,7 +761,7 @@ def api_taste_top_tracks(username):
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         cur = conn.execute("""
-            SELECT mt.title, mt.artist, mt.file_path,
+            SELECT mt.id AS track_id, mt.title, mt.artist, mt.file_path,
                    ROUND((
                        COALESCE(f.score_tempo,50) + COALESCE(f.score_energy,50) +
                        COALESCE(f.score_brightness,50) + COALESCE(f.score_energy_contrast,50) +
@@ -770,7 +773,7 @@ def api_taste_top_tracks(username):
             INNER JOIN music_tracks mt ON mt.id = b.track_id
             WHERE b.username = ? AND b.is_favorite = 1
             ORDER BY resonance DESC
-            LIMIT 10
+            LIMIT 50
         """, (username,))
         rows = cur.fetchall()
         conn.close()
@@ -779,6 +782,7 @@ def api_taste_top_tracks(username):
         for i, r in enumerate(rows):
             tracks.append({
                 'rank': i + 1,
+                'track_id': str(r['track_id']),
                 'title': r['title'],
                 'artist': r['artist'],
                 'file_path': r['file_path'],
@@ -817,20 +821,31 @@ def _dna_rebuild_worker(task_id: str, username: str):
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     try:
-        # 获取 liked IDs（使用 main.py 全局缓存）
+        # 获取 liked IDs（优先缓存，未命中则直接拉取）
         global _liked_ids_cache
         liked_ids = _liked_ids_cache
         if not liked_ids:
-            # 尝试初始化
-            from playback_api import _get_liked_ids as _pb_get_liked_ids
-            liked_ids = _pb_get_liked_ids()
-            _liked_ids_cache = liked_ids
+            liked_ids = _fetch_liked_ids_direct()
+            if liked_ids:
+                _liked_ids_cache = liked_ids
         if not liked_ids:
             task_manager.update_task(task_id, status=TaskStatus.FAILED,
                                      message='未获取到喜欢歌单', error='liked_ids empty')
             return
 
         total = len(liked_ids)
+
+        # ── 清空该用户旧的行为数据，确保 taste-radar 只展示本次重建结果 ──
+        db_path = _PROJECT_ROOT / 'config' / 'music_vault.db'
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("DELETE FROM user_track_behaviors WHERE username = ?", (username,))
+            conn.commit()
+            conn.close()
+            api_service.logger.info(f"[DNA重建] 已清空 {username} 的旧行为数据")
+        except Exception as e:
+            api_service.logger.warning(f"[DNA重建] 清空旧数据失败（继续）: {e}")
+
         task_manager.update_task(task_id, status=TaskStatus.RUNNING,
                                  progress=0, message=f'共 {total} 首，3 线程并行处理中')
 
@@ -887,7 +902,7 @@ def _dna_rebuild_worker(task_id: str, username: str):
                     return 'no_cookies'
 
                 from music_api import url_v1
-                url_result = url_v1(track_id, 'exhigh', cookies)
+                url_result = url_v1(track_id, 'standard', cookies)
                 song_url = None
                 if isinstance(url_result, dict):
                     data_list = url_result.get('data', [])
@@ -901,9 +916,10 @@ def _dna_rebuild_worker(task_id: str, username: str):
 
                 # ── 3. 下载 + CAS 存储 ──
                 from services.song_storage import SongStorageService
+                storage = SongStorageService()
                 metadata = {'track_id': str(track_id), 'song_name': title}
                 try:
-                    store_path, _ = SongStorageService.download_and_store(
+                    store_path, _ = storage.download_and_store(
                         username, song_url, metadata,
                     )
                 except Exception:
@@ -916,7 +932,7 @@ def _dna_rebuild_worker(task_id: str, username: str):
                 from music_processor.single_scorer import score_single_track
                 try:
                     score_single_track(
-                        store_path,
+                        str(store_path),
                         title=title,
                         artist=artist,
                         album='',
@@ -2955,7 +2971,7 @@ def api_files_stream(filename):
     3. CAS 存储：按 title+artist 反查 music_tracks.file_path → CAS hash
     """
     try:
-        downloads_dir = _get_user_downloads_path()
+        downloads_dir = _PROJECT_ROOT / 'downloads'
         downloads_root = downloads_dir.resolve()
 
         # ── Step 1: 尝试直接路径 ──
@@ -3401,6 +3417,32 @@ def _get_liked_pid() -> Optional[int]:
     return None
 
 
+def _fetch_liked_ids_direct() -> List[int]:
+    """直接拉取喜欢歌单的 trackIds（不依赖缓存），用于重建任务冷启动"""
+    try:
+        liked_pid = _get_liked_pid()
+        if not liked_pid:
+            return []
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return []
+        import requests as _r
+        url = f"https://music.163.com/api/v6/playlist/detail?id={liked_pid}"
+        hdrs = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://music.163.com/',
+        }
+        resp = _r.get(url, headers=hdrs, cookies=cookies, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get('code') != 200:
+            return []
+        return [t['id'] for t in body.get('playlist', {}).get('trackIds', [])]
+    except Exception as e:
+        api_service.logger.error(f"_fetch_liked_ids_direct 失败: {e}")
+        return []
+
+
 @app.route('/api/v3/music/like', methods=['POST'])
 def api_v3_music_like():
     """红心/取消红心 — 通过 playlist/manipulate/tracks 操作喜欢歌单"""
@@ -3457,7 +3499,75 @@ def api_v3_music_like():
         return APIResponse.error(str(e), 502)
 
 
-if __name__ == '__main__':
+@app.route('/api/v3/music/liked/songs', methods=['GET'])
+def api_v3_music_liked_songs():
+    """搜索/获取喜欢歌曲完整信息（含歌名/歌手/专辑/封面）
+
+    Query params:
+        keyword: 搜索关键词（为空则返回全部）
+        offset:  偏移量，默认 0
+        limit:   返回数量，默认 200
+    """
+    global _liked_songs_cache, _liked_songs_cookie_hash
+    try:
+        keyword = request.args.get('keyword', '').strip()
+        offset = int(request.args.get('offset', 0))
+        limit = min(int(request.args.get('limit', 200)), 1000)
+
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return APIResponse.error("需要配置网易云 Cookie", 400)
+
+        cookie_hash = hash(frozenset(str(v)[:20] for v in cookies.values()))
+        if _liked_songs_cache is not None and _liked_songs_cookie_hash == cookie_hash:
+            songs = _liked_songs_cache
+        else:
+            liked_pid = _get_liked_pid()
+            if not liked_pid:
+                return APIResponse.error("未找到喜欢歌单", 400)
+
+            import requests as _r
+            data = {'id': liked_pid, 'n': 100000, 's': 0}
+            hdrs = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://music.163.com/',
+            }
+            resp = _r.post('https://music.163.com/api/v6/playlist/detail',
+                           data=data, headers=hdrs, cookies=cookies, timeout=60)
+            resp.raise_for_status()
+            body = resp.json()
+            if body.get('code') != 200:
+                return APIResponse.error(body.get('message', '获取歌单详情失败'), 502)
+            tracks = body.get('playlist', {}).get('tracks', [])
+            songs = []
+            for t in tracks:
+                songs.append({
+                    'id': t['id'],
+                    'name': t['name'],
+                    'artists': '/'.join(a.get('name', '') or '' for a in t.get('ar', []) if a.get('name')),
+                    'album': t.get('al', {}).get('name', '') or '',
+                    'picUrl': t.get('al', {}).get('picUrl', '') or '',
+                })
+            _liked_songs_cache = songs
+            _liked_songs_cookie_hash = cookie_hash
+            api_service.logger.info(f"liked-songs 缓存刷新: {len(songs)} 首")
+
+        # 搜索过滤
+        if keyword:
+            kw = keyword.lower()
+            songs = [s for s in songs if kw in s['name'].lower() or kw in s['artists'].lower()]
+
+        total = len(songs)
+        paged = songs[offset:offset + limit]
+
+        # 同步更新 ID 缓存
+        _liked_ids_cache = [s['id'] for s in songs]
+        _liked_ids_cookie_hash = cookie_hash
+
+        return APIResponse.success({'total': total, 'songs': paged})
+    except Exception as e:
+        api_service.logger.error(f"获取 liked-songs 失败: {e}")
+        return APIResponse.error(str(e), 502)
     # 加载.env文件
     try:
         from dotenv import load_dotenv

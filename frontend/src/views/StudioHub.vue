@@ -300,13 +300,15 @@
                     :model-value="rebuildProgress" color="primary" height="3"
                     style="max-width:80px;margin:0 8px" rounded
                   />
-                  <v-btn icon size="x-small" color="error" variant="text" title="终止重建" @click="cancelRebuild">
-                    <v-icon size="14">mdi-stop</v-icon>
+                  <v-btn size="small" color="error" variant="tonal" title="终止重建"
+                    @click="cancelRebuild" class="rebuild-btn">
+                    <v-icon size="18" left>mdi-stop</v-icon>
+                    终止
                   </v-btn>
                 </template>
                 <template v-else>
-                  <v-btn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-refresh"
-                    :loading="dnaLoading" @click="triggerRebuild">
+                  <v-btn size="default" variant="tonal" color="primary" prepend-icon="mdi-refresh"
+                    :loading="rebuildLoading" :disabled="rebuildLoading" @click="triggerRebuild" class="rebuild-btn">
                     从我喜欢生成
                   </v-btn>
                 </template>
@@ -335,31 +337,15 @@
             </div>
           </div>
           <div class="dna-right">
-            <div class="glass-card">
-              <div class="card-header">
-                <v-icon size="18" color="#f59e0b">mdi-fire</v-icon>
-                <span class="card-title">TOP 10 共鸣单曲</span>
-                <v-spacer />
-                <span class="card-badge accent">{{ topTracks.length }} 首</span>
-              </div>
-              <TransitionGroup name="track-list" tag="div" class="track-scroll">
-                <div v-for="t in topTracks" :key="t.rank" class="track-row">
-                  <div class="rank-badge" :class="t.rank <= 3 ? 'rank-gold' : ''">
-                    <template v-if="t.rank === 1">🥇</template>
-                    <template v-else-if="t.rank === 2">🥈</template>
-                    <template v-else-if="t.rank === 3">🥉</template>
-                    <template v-else>{{ t.rank }}</template>
-                  </div>
-                  <div class="track-meta">
-                    <div class="track-name text-truncate">{{ t.title }}</div>
-                    <div class="track-artist-name text-truncate">{{ t.artist }}</div>
-                  </div>
-                  <div class="track-score" :class="scoreClass(t.resonance)">
-                    <span class="score-value">{{ t.resonance }}</span>
-                    <span class="score-unit">分</span>
-                  </div>
-                </div>
-              </TransitionGroup>
+            <div class="glass-card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;gap:12px">
+              <v-icon size="40" color="#f59e0b">mdi-fire</v-icon>
+              <span style="font-size:0.9rem;color:var(--text-2);text-align:center">
+                TOP 50 共鸣单曲已迁移至<br/>「发现音乐 → ⭐ TOP 50」
+              </span>
+              <v-btn size="small" variant="tonal" color="warning" prepend-icon="mdi-arrow-right"
+                @click="activeTab = 'discover'; sourceType = 'top50'; fetchRecommend()">
+                立即查看
+              </v-btn>
             </div>
           </div>
         </div>
@@ -589,6 +575,7 @@ const sourceOptions = [
 const sourceTabs = [
   { icon: '❤️', label: '喜欢', value: 'liked' },
   { icon: '🔥', label: '热榜', value: 'hot_list' },
+  { icon: '⭐', label: 'TOP 50', value: 'top50' },
   { icon: '💿', label: '本地', value: 'local_library' },
   { icon: '📋', label: '歌单', value: 'custom_playlist' },
 ]
@@ -817,9 +804,48 @@ function _restoreFromCache(key) {
   return true
 }
 
+async function _fetchTop50() {
+  recommendLoading.value = true
+  try {
+    const u = username.value
+    const res = await api.get(`/api/user/${u}/taste-top-tracks`)
+    const tracks = res?.data?.data || res?.data || []
+    // 映射到推荐流统一的 track 格式
+    const mapped = tracks.map(t => ({
+      track_id: t.track_id,
+      title: t.title,
+      artist: t.artist,
+      album: '',
+      cover_url: '',
+      file_path: t.file_path,
+      preference_score: t.resonance,
+      source: t.file_path ? 'local' : 'netease',
+      bpm: t.file_path ? 120 : -1,
+      rank: t.rank,
+    }))
+    recommendTracks.value = mapped
+    playlist.value = mapped
+    playlistIndex.value = -1
+    totalTracks.value = mapped.length
+    totalPages.value = 1
+    page.value = 1
+    window.__snackbar?.(`TOP ${mapped.length} 共鸣单曲`, 'success')
+  } catch (e) {
+    window.__snackbar?.('TOP 50 加载失败: ' + (e.message || '网络错误'), 'error')
+  } finally {
+    recommendLoading.value = false
+  }
+}
+
 async function fetchRecommend() {
   if (sourceType.value === 'custom_playlist' && !customPlaylistId.value.trim()) {
     window.__snackbar?.('请输入歌单 ID', 'warning')
+    return
+  }
+
+  // TOP 50 共鸣：独立 API，不走推荐流
+  if (sourceType.value === 'top50') {
+    await _fetchTop50()
     return
   }
 
@@ -977,6 +1003,7 @@ const hoveredDim = ref(null)
 const rebuildTaskId = ref('')
 const rebuildProgress = ref(0)
 const rebuildMessage = ref('')
+const rebuildLoading = ref(false)
 const rebuildRunning = computed(() => !!rebuildTaskId.value)
 let _rebuildPollTimer = null
 
@@ -1052,62 +1079,75 @@ const radarOption = computed(() => {
 
 const topTracks = ref([])
 
-function scoreClass(val) {
-  if (val >= 70) return 'score-high'
-  if (val >= 50) return 'score-mid'
-  return 'score-low'
-}
-
 async function loadDnaData() {
   dnaLoading.value = true; dnaError.value = ''
   try {
     const u = username.value
-    const [radarRes, tracksRes] = await Promise.allSettled([
-      api.get(`/api/user/${u}/taste-radar`),
-      api.get(`/api/user/${u}/taste-top-tracks`),
-    ])
-    if (radarRes.status === 'fulfilled') {
-      const body = radarRes.value?.data
-      if (body?.success && body.data?.radar) {
-        const d = body.data
-        dimensions.forEach((dim, i) => { radarData[dim.key] = d.radar[i] ?? 50 })
-        trackCount.value = d.count ?? 0
-        dnaEmpty.value = trackCount.value === 0
-      }
-    }
-    if (tracksRes.status === 'fulfilled') {
-      const body = tracksRes.value?.data
-      topTracks.value = (body?.success && body.data) ? body.data : []
+    const radarRes = await api.get(`/api/user/${u}/taste-radar`)
+    const body = radarRes?.data
+    if (body?.success && body.data?.radar) {
+      const d = body.data
+      dimensions.forEach((dim, i) => { radarData[dim.key] = d.radar[i] ?? 50 })
+      trackCount.value = d.count ?? 0
+      dnaEmpty.value = trackCount.value === 0
     }
   } catch (e) {
     dnaError.value = '加载失败：' + (e.message || '网络错误')
   } finally {
     dnaLoading.value = false
   }
+  // 同步检查是否有活跃的重建任务
+  await _syncActiveRebuildTask()
+}
+
+async function _syncActiveRebuildTask() {
+  // 如果已经有重建任务在跟踪，跳过
+  if (rebuildTaskId.value) return
+  try {
+    const res = await api.get('/api/tasks?type=dna_rebuild&status=running&limit=1')
+    const tasks = res?.data?.data || res?.data || []
+    if (Array.isArray(tasks) && tasks.length > 0) {
+      const task = tasks[0]
+      rebuildTaskId.value = task.task_id
+      rebuildProgress.value = task.progress || 0
+      rebuildMessage.value = task.message || ''
+      _startRebuildPolling()
+    }
+  } catch { /* 静默 */ }
 }
 
 async function triggerRebuild() {
+  if (rebuildRunning.value || rebuildLoading.value) return
+  rebuildLoading.value = true
   try {
     const res = await api.post(`/api/user/${username.value}/taste-rebuild`)
     const taskId = res.data?.data?.task_id || res.data?.task_id
-    if (!taskId) return window.__snackbar?.('启动重建失败', 'error')
+    if (!taskId) {
+      rebuildLoading.value = false
+      return window.__snackbar?.('启动重建失败', 'error')
+    }
     rebuildTaskId.value = taskId
     rebuildProgress.value = 0
     rebuildMessage.value = '启动中...'
+    rebuildLoading.value = false
     window.__snackbar?.('DNA 重建任务已启动', 'success')
     _startRebuildPolling()
   } catch (e) {
+    rebuildLoading.value = false
     window.__snackbar?.('启动失败: ' + (e.message || '网络错误'), 'error')
   }
 }
 
 async function cancelRebuild() {
-  if (!rebuildTaskId.value) return
+  if (!rebuildTaskId.value || rebuildLoading.value) return
+  rebuildLoading.value = true
   try {
     await api.post(`/api/tasks/${rebuildTaskId.value}/cancel`)
     window.__snackbar?.('已发送终止信号', 'info')
   } catch (e) {
     window.__snackbar?.('终止失败: ' + (e.message || '网络错误'), 'error')
+  } finally {
+    rebuildLoading.value = false
   }
 }
 
@@ -1429,6 +1469,7 @@ onBeforeUnmount(() => {
 
 .rebuild-progress-text { font-size: 0.75rem; font-weight: 600; color: #a78bfa; min-width: 32px; text-align: right; }
 .rebuild-msg { font-size: 0.7rem; color: var(--text-3); padding: 0 0 8px 26px; }
+.rebuild-btn { font-size: 0.85rem !important; padding: 0 16px !important; min-height: 36px !important; }
 
 /* ══════════════════════════════════════════════
    Tab 1：发现音乐 布局
