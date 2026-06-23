@@ -88,7 +88,54 @@
               <v-icon size="18" color="#a78bfa">mdi-playlist-music</v-icon>
               <span class="card-title">推荐流</span>
               <v-spacer />
+              <!-- 排序切换 -->
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                :color="sortOrder === 'desc' ? 'primary' : undefined"
+                :title="sortOrder === 'desc' ? '偏好分从高到低' : '偏好分从低到高'"
+                @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'; fetchRecommend()"
+              >
+                <v-icon size="16">{{ sortOrder === 'desc' ? 'mdi-sort-descending' : 'mdi-sort-ascending' }}</v-icon>
+              </v-btn>
               <span class="card-badge" v-if="recommendTracks.length">{{ recommendTracks.length }} 首</span>
+            </div>
+            <!-- 歌单源 Tab 切换 -->
+            <div class="source-tabs">
+              <div class="source-tab-row">
+                <button
+                  v-for="src in sourceTabs"
+                  :key="src.value"
+                  class="source-tab"
+                  :class="{ 'source-tab--active': sourceType === src.value }"
+                  @click="switchSource(src.value)"
+                >
+                  <span class="source-tab-icon">{{ src.icon }}</span>
+                  <span class="source-tab-label">{{ src.label }}</span>
+                </button>
+              </div>
+              <!-- 自定义歌单 ID 输入 -->
+              <div v-if="sourceType === 'custom_playlist'" class="source-tab-extra">
+                <v-text-field
+                  v-model="customPlaylistId"
+                  label="歌单 ID"
+                  placeholder="输入网易云歌单 ID"
+                  variant="solo-filled"
+                  density="compact"
+                  hide-details
+                  rounded="lg"
+                  class="playlist-id-input"
+                />
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="flat"
+                  prepend-icon="mdi-refresh"
+                  :loading="recommendLoading"
+                  @click="fetchRecommend"
+                >刷新</v-btn>
+              </div>
             </div>
             <div v-if="recommendLoading" class="list-loading">
               <v-progress-circular indeterminate size="20" width="2" color="primary" />
@@ -113,68 +160,54 @@
                   <div class="track-name text-truncate">{{ t.title }}</div>
                   <div class="track-artist-name text-truncate">{{ t.artist }}</div>
                 </div>
+                <!-- 偏好匹配分 -->
                 <v-chip
-                  v-if="t.bpm < 0"
+                  v-if="t.preference_score > 0"
                   size="x-small"
-                  variant="tonal"
-                  color="warning"
-                  class="track-chip"
-                >待扫描</v-chip>
+                  variant="flat"
+                  :color="prefColor(t.preference_score)"
+                  class="track-chip track-chip--pref"
+                >{{ t.preference_score }}分</v-chip>
+                <!-- 来源标签 -->
                 <v-chip
-                  v-else
+                  v-if="t.source === 'local'"
                   size="x-small"
                   variant="tonal"
                   color="success"
                   class="track-chip"
-                >已分析</v-chip>
+                >本地</v-chip>
+                <v-chip
+                  v-else-if="t.source === 'netease'"
+                  size="x-small"
+                  variant="tonal"
+                  :color="t.bpm < 0 ? 'warning' : 'success'"
+                  class="track-chip"
+                >{{ t.bpm < 0 ? '待扫描' : '已分析' }}</v-chip>
               </div>
             </TransitionGroup>
+            <!-- 分页控件 -->
+            <div class="pagination-bar" v-if="totalPages > 1">
+              <v-btn
+                icon="mdi-chevron-left"
+                size="small"
+                variant="text"
+                :disabled="page <= 1"
+                @click="goToPage(page - 1)"
+              />
+              <span class="pagination-info">{{ page }} / {{ totalPages }} 页（共 {{ totalTracks }} 首）</span>
+              <v-btn
+                icon="mdi-chevron-right"
+                size="small"
+                variant="text"
+                :disabled="page >= totalPages"
+                @click="goToPage(page + 1)"
+              />
+            </div>
           </div>
         </div>
 
-        <!-- 右侧：歌单导入源 -->
+        <!-- 右侧：播放状态指示 -->
         <div class="source-col">
-          <div class="glass-card source-card">
-            <div class="card-header">
-              <v-icon size="18" color="#f59e0b">mdi-music-circle</v-icon>
-              <span class="card-title">歌单源</span>
-            </div>
-            <div class="source-body">
-              <v-select
-                v-model="sourceType"
-                :items="sourceOptions"
-                label="推荐来源"
-                variant="solo-filled"
-                density="comfortable"
-                hide-details
-                rounded="lg"
-                class="mb-4"
-              />
-              <v-text-field
-                v-if="sourceType === 'custom_playlist'"
-                v-model="customPlaylistId"
-                label="歌单 ID"
-                placeholder="输入网易云歌单 ID"
-                variant="solo-filled"
-                density="comfortable"
-                hide-details
-                rounded="lg"
-                class="mb-4"
-              />
-              <v-btn
-                block
-                color="primary"
-                variant="flat"
-                prepend-icon="mdi-refresh"
-                :loading="recommendLoading"
-                @click="fetchRecommend"
-              >
-                刷新推荐流
-              </v-btn>
-            </div>
-          </div>
-
-          <!-- 当前播放状态指示 -->
           <div class="glass-card status-card" v-if="currentTrack.track_id">
             <div class="card-header">
               <v-icon size="16" :color="isPlaying ? 'success' : 'rgba(var(--v-theme-on-surface),0.4)'">
@@ -444,6 +477,11 @@ const recommendTracks = ref([])
 const recommendLoading = ref(false)
 const sourceType = ref('hot_list')
 const customPlaylistId = ref('')
+const sortOrder = ref('desc')
+const page = ref(1)
+const pageSize = ref(20)
+const totalPages = ref(1)
+const totalTracks = ref(0)
 const hasAudioSource = ref(false)
 
 // ── 歌词状态 ──
@@ -465,6 +503,13 @@ const visibleLyricLines = computed(() => {
 const sourceOptions = [
   { title: '🔥 网易云热榜', value: 'hot_list' },
   { title: '📋 自定义歌单', value: 'custom_playlist' },
+  { title: '💿 本地音乐', value: 'local_library' },
+]
+
+const sourceTabs = [
+  { icon: '🔥', label: '热榜', value: 'hot_list' },
+  { icon: '📋', label: '歌单', value: 'custom_playlist' },
+  { icon: '💿', label: '本地', value: 'local_library' },
 ]
 
 const currentTrack = reactive({
@@ -674,7 +719,12 @@ function updateActiveLyric() {
 async function fetchRecommend() {
   recommendLoading.value = true
   try {
-    const params = { source_type: sourceType.value }
+    const params = {
+      source_type: sourceType.value,
+      sort_order: sortOrder.value,
+      page: page.value,
+      page_size: pageSize.value,
+    }
     if (sourceType.value === 'custom_playlist') {
       if (!customPlaylistId.value.trim()) {
         window.__snackbar?.('请输入歌单 ID', 'warning')
@@ -688,7 +738,10 @@ async function fetchRecommend() {
       recommendTracks.value = body.tracks
       playlist.value = body.tracks
       playlistIndex.value = -1
-      window.__snackbar?.(`已加载 ${body.tracks.length} 首推荐`, 'success')
+      totalTracks.value = body.total || body.tracks.length
+      totalPages.value = body.total_pages || 1
+      page.value = body.page || 1
+      window.__snackbar?.(`第 ${page.value}/${totalPages.value} 页，共 ${totalTracks.value} 首`, 'success')
     }
   } catch (e) {
     window.__snackbar?.('推荐加载失败: ' + (e.message || '网络错误'), 'error')
@@ -702,6 +755,13 @@ function formatTime(sec) {
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function prefColor(score) {
+  if (score >= 80) return 'success'
+  if (score >= 60) return 'primary'
+  if (score >= 40) return 'warning'
+  return 'error'
 }
 
 function seekProgress(e) {
@@ -948,6 +1008,24 @@ watch(activeTab, (tab) => {
   if (tab === 'history') fetchHistory()
 })
 
+
+function switchSource(val) {
+  if (sourceType.value === val) return
+  sourceType.value = val
+  page.value = 1
+  totalPages.value = 1
+  totalTracks.value = 0
+  recommendTracks.value = []
+  playlist.value = []
+  fetchRecommend()
+}
+
+function goToPage(p) {
+  if (p < 1 || p > totalPages.value) return
+  page.value = p
+  fetchRecommend()
+}
+
 onMounted(() => {
   fetchRecommend()
 })
@@ -972,6 +1050,69 @@ onBeforeUnmount(() => {
   --text-3: rgba(var(--v-theme-on-surface), 0.38);
   color: var(--text-1);
   position: relative;
+}
+
+/* 分页栏 */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--aero-border);
+}
+.pagination-info {
+  font-size: 13px;
+  color: var(--text-2);
+  min-width: 140px;
+  text-align: center;
+}
+
+/* 歌单源 Tab 栏 */
+.source-tabs {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--aero-border);
+}
+.source-tab-row {
+  display: flex;
+  gap: 2px;
+}
+.source-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.source-tab:hover {
+  color: var(--text-1);
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.source-tab--active {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+  font-weight: 600;
+}
+.source-tab-icon {
+  font-size: 14px;
+}
+.source-tab-label {
+  white-space: nowrap;
+}
+.source-tab-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+.playlist-id-input {
+  max-width: 200px;
 }
 
 /* ══════════════════════════════════════════════

@@ -68,6 +68,8 @@ try:
         PlayLogRequest, PlaybackLog, SessionLocal,
         _load_netease_cookies as _pb_load_cookies,
         _build_recommend_tracks, _get_local_features,
+        _get_local_top_tracks, _async_download_and_score, compute_preference_score,
+        _sort_tracks_by_preference, _async_fetch_netease_playlist,
     )
     from music_api import playlist_detail as netease_playlist_detail, APIException as NeteaseAPIError
 except ImportError as e:
@@ -2939,44 +2941,95 @@ def api_v3_music_history():
 @app.route('/api/v3/music/recommend', methods=['GET'])
 def api_v3_music_recommend():
     """
-    推荐接口：hot_list（热榜 3778678） / custom_playlist（自定义ID）
-    1. 调用网易云 API 获取歌单歌曲
-    2. 在本地 music_tracks 模糊匹配特征
-    3. 返回带特征的歌曲列表
+    推荐接口（分页）。
+
+    - hot_list: 网易云热榜（仅热榜歌曲，本地有则自动匹配特征）
+    - custom_playlist: 自定义歌单（仅歌单歌曲，本地有则自动匹配特征）
+    - local_library: 本地音乐库（仅本地已分析歌曲）
+    - page / page_size: 分页参数
     """
     try:
         source_type = request.args.get('source_type', 'hot_list')
         playlist_id = request.args.get('playlist_id', None)
+        sort_order = request.args.get('sort_order', 'desc')
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 50, type=int)
 
-        if source_type not in ('hot_list', 'custom_playlist'):
-            return APIResponse.error("source_type 仅支持 hot_list 或 custom_playlist", 400)
+        if source_type not in ('hot_list', 'custom_playlist', 'local_library'):
+            return APIResponse.error("source_type 仅支持 hot_list / custom_playlist / local_library", 400)
         if source_type == 'custom_playlist' and not playlist_id:
             return APIResponse.error("custom_playlist 必须提供 playlist_id", 400)
+        if sort_order not in ('asc', 'desc'):
+            sort_order = 'desc'
+        if page < 1:
+            page = 1
+        if page_size < 1 or page_size > 200:
+            page_size = 50
 
-        # 获取 Cookie
-        cookies = _pb_load_cookies()
-        if not cookies:
+        username = get_current_user() or 'admin'
+
+        # ══════════ 分支：本地音乐库 ══════════
+        if source_type == 'local_library':
+            local_tracks = _get_local_top_tracks(username, limit=50)
+            tracks = _build_recommend_tracks(
+                [], source_type, '本地音乐库',
+                local_tracks=local_tracks,
+            )
+            tracks = _sort_tracks_by_preference(tracks, sort_order)
+            total = len(tracks)
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            paged = tracks[(page - 1) * page_size : page * page_size]
             return APIResponse.success({
-                'total': 0, 'source_type': source_type,
-                'source_label': '需要配置网易云 Cookie',
-                'tracks': [],
-            }, "无Cookie")
+                'total': total, 'page': page, 'page_size': page_size,
+                'total_pages': total_pages,
+                'source_type': source_type,
+                'source_label': '本地音乐库',
+                'generated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                'tracks': [t.model_dump() for t in paged],
+            }, "ok")
 
-        # 调用网易云 API
-        pid = int(playlist_id) if playlist_id else _NETEASE_HOT_CHART_ID
-        playlist_info = netease_playlist_detail(pid, cookies)
-        raw_tracks = playlist_info.get('tracks', [])
+        # ══════════ 分支：网易云热榜 / 自定义歌单 ══════════
+        cookies = _pb_load_cookies()
+        raw_tracks = []
+        playlist_name = ''
+
+        if cookies:
+            pid = int(playlist_id) if playlist_id else _NETEASE_HOT_CHART_ID
+            try:
+                playlist_info = netease_playlist_detail(pid, cookies)
+                raw_tracks = playlist_info.get('tracks', [])
+                playlist_name = playlist_info.get('name', '网易云热榜' if source_type == 'hot_list' else '')
+            except Exception as e:
+                api_service.logger.warning(f"网易云 API 调用失败: {e}")
+                raw_tracks = []
+                playlist_name = ''
+        else:
+            api_service.logger.info("无有效网易云 Cookie")
 
         tracks = _build_recommend_tracks(
             raw_tracks, source_type,
-            playlist_info.get('name', '网易云热榜' if source_type == 'hot_list' else ''),
+            playlist_name or '网易云热榜',
+            local_tracks=None,
         )
+        tracks = _sort_tracks_by_preference(tracks, sort_order)
+
+        # ── 分页 ──
+        total = len(tracks)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        paged = tracks[(page - 1) * page_size : page * page_size]
+
+        # ── 后台预下载（全量，非仅分页） ──
+        netease_unmatched = [t for t in tracks if t.source == 'netease' and t.bpm < 0]
+        if netease_unmatched:
+            _async_download_and_score(netease_unmatched, cookies, username)
 
         return APIResponse.success({
-            'total': len(tracks), 'source_type': source_type,
-            'source_label': playlist_info.get('name', ''),
+            'total': total, 'page': page, 'page_size': page_size,
+            'total_pages': total_pages,
+            'source_type': source_type,
+            'source_label': playlist_name or '网易云热榜',
             'generated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
-            'tracks': [t.model_dump() for t in tracks],
+            'tracks': [t.model_dump() for t in paged],
         }, "ok")
     except Exception as e:
         api_service.logger.error(f"推荐接口异常: {e}")

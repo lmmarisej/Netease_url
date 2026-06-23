@@ -14,6 +14,7 @@ FastAPI APIRouter，提供播放行为记录、历史查询、歌曲推荐接口
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
@@ -101,7 +102,7 @@ class PlayHistoryResponse(BaseModel):
 
 
 class RecommendTrack(BaseModel):
-    """推荐歌曲（含完整特征向量）"""
+    """推荐歌曲（含完整特征向量 + 偏好打分 + 来源标注）"""
 
     track_id: str
     title: str
@@ -116,12 +117,18 @@ class RecommendTrack(BaseModel):
     instrumentalness: float = 0.0
     valence: float = 0.0
     source_label: str = ""  # "网易云热榜" / "自定义歌单"
+    source: str = "netease"  # "local" | "netease" — 歌曲来源
+    preference_score: int = 0  # 0-100 用户偏好匹配分
+    file_path: str = ""  # 本地文件路径（local 歌曲）
 
 
 class RecommendResponse(BaseModel):
-    """推荐接口响应"""
+    """推荐接口响应（分页）"""
 
     total: int
+    page: int = 1
+    page_size: int = 50
+    total_pages: int = 1
     source_type: str
     source_label: str
     generated_at: str
@@ -302,30 +309,40 @@ async def get_history(
 async def get_recommend(
     source_type: str = Query(
         default="hot_list",
-        description="推荐来源: hot_list（网易云热榜）| custom_playlist（自定义歌单）",
+        description="推荐来源: hot_list | custom_playlist | local_library",
     ),
     playlist_id: Optional[str] = Query(
         default=None,
         description="自定义歌单 ID（source_type=custom_playlist 时必填）",
     ),
+    sort_order: str = Query(
+        default="desc",
+        description="偏好分排序: desc（高分优先）| asc（低分优先）",
+    ),
+    page: int = Query(
+        default=1, ge=1,
+        description="页码（从 1 开始）",
+    ),
+    page_size: int = Query(
+        default=50, ge=1, le=200,
+        description="每页条数",
+    ),
 ) -> RecommendResponse:
     """
     核心推荐接口。
 
-    - hot_list：拉取网易云热歌榜（ID=3778678），匹配本地特征库后返回
-    - custom_playlist：拉取指定歌单，匹配本地特征库后返回
+    - hot_list: 网易云热榜（仅热榜歌曲，本地有则自动匹配特征）
+    - custom_playlist: 自定义歌单（仅歌单歌曲，本地有则自动匹配特征）
+    - local_library: 本地音乐库（仅本地已分析歌曲）
 
-    特征匹配策略：
-    1. 调用网易云 API 获取歌单内歌曲列表
-    2. 按 title + artist 在本地 music_tracks 表中模糊匹配
-    3. 匹配成功 → 从 track_audio_features + track_tags 读取真实特征
-    4. 未匹配   → 返回基础元信息，特征置 -1 表示待扫描
+    后台增强：未匹配的在线歌曲异步下载 → CAS → 打分 → 下次带特征
+    支持 sort_order=asc/desc 按偏好分排序
     """
     # ── 参数校验 ──
-    if source_type not in ("hot_list", "custom_playlist"):
+    if source_type not in ("hot_list", "custom_playlist", "local_library"):
         raise HTTPException(
             status_code=400,
-            detail="source_type 仅支持 'hot_list' 或 'custom_playlist'",
+            detail="source_type 仅支持 hot_list / custom_playlist / local_library",
         )
 
     if source_type == "custom_playlist" and not playlist_id:
@@ -334,60 +351,291 @@ async def get_recommend(
             detail="source_type=custom_playlist 时必须提供 playlist_id",
         )
 
-    # ── 获取 Cookie ──
-    cookies = _load_netease_cookies()
-    if not cookies:
-        # 无有效 Cookie，回退为空列表（提示用户配置 Cookie）
-        logger.warning("无有效网易云 Cookie，推荐接口返回空列表")
-        return RecommendResponse(
-            total=0,
-            source_type=source_type,
-            source_label="需要配置网易云 Cookie",
-            generated_at=datetime.now(timezone.utc).isoformat(),
-            tracks=[],
-        )
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
 
-    # ── 调用网易云 API ──
-    pid = int(playlist_id) if playlist_id else _HOT_CHART_ID
+    # ── 用户信息 ──
+    username = "admin"
     try:
-        from music_api import playlist_detail, APIException as NeteaseAPIError
-
-        playlist_info = playlist_detail(pid, cookies)
-        raw_tracks = playlist_info.get("tracks", [])
-    except NeteaseAPIError as e:
-        logger.error(f"网易云 API 调用失败: {e}")
-        raise HTTPException(status_code=502, detail=f"网易云 API 失败: {e}")
+        from auth import get_current_user
+        u = get_current_user()
+        if u:
+            username = u
     except ImportError:
-        logger.error("无法导入 music_api 模块")
-        raise HTTPException(status_code=500, detail="后端 music_api 模块不可用")
-    except Exception as e:
-        logger.error(f"获取歌单异常: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        pass
 
-    if not raw_tracks:
+    # ══════════ 分支：本地音乐库 ══════════
+    if source_type == "local_library":
+        local_tracks = _get_local_top_tracks(username, limit=50)
+        tracks = _build_recommend_tracks(
+            [], source_type, "本地音乐库",
+            local_tracks=local_tracks,
+        )
+        tracks = _sort_tracks_by_preference(tracks, sort_order)
+        total = len(tracks)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        paged = tracks[(page - 1) * page_size : page * page_size]
         return RecommendResponse(
-            total=0,
+            total=total, page=page, page_size=page_size, total_pages=total_pages,
             source_type=source_type,
-            source_label=playlist_info.get("name", "未知歌单"),
+            source_label="本地音乐库",
             generated_at=datetime.now(timezone.utc).isoformat(),
-            tracks=[],
+            tracks=paged,
         )
 
-    # ── 匹配本地特征库 ──
-    tracks = _build_recommend_tracks(raw_tracks, source_type, playlist_info.get("name", ""))
+    # ══════════ 分支：网易云热榜 / 自定义歌单 ══════════
+    cookies = _load_netease_cookies()
+    raw_tracks: List[Dict[str, Any]] = []
+    playlist_name = ""
+
+    if cookies:
+        pid = int(playlist_id) if playlist_id else _HOT_CHART_ID
+        try:
+            from music_api import playlist_detail, APIException as NeteaseAPIError
+
+            playlist_info = playlist_detail(pid, cookies)
+            raw_tracks = playlist_info.get("tracks", [])
+            playlist_name = playlist_info.get("name", "网易云热榜" if source_type == "hot_list" else "")
+        except (NeteaseAPIError, ImportError, Exception) as e:
+            logger.warning(f"网易云 API 调用失败: {e}")
+    else:
+        logger.warning("无有效网易云 Cookie")
+
+    # ── 仅网易云歌单歌曲，local_tracks=None（不混入纯本地歌曲） ──
+    #   但 _get_local_features 仍会匹配已在本地库的热榜歌曲 → 带特征
+    tracks = _build_recommend_tracks(
+        raw_tracks, source_type,
+        playlist_name or "网易云热榜",
+        local_tracks=None,
+    )
+
+    # ── 排序 ──
+    tracks = _sort_tracks_by_preference(tracks, sort_order)
+
+    # ── 分页 ──
+    total = len(tracks)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    paged = tracks[(page - 1) * page_size : page * page_size]
+
+    # ── 后台预下载未匹配歌曲 ──
+    netease_unmatched = [t for t in tracks if t.source == "netease" and t.bpm < 0]
+    if netease_unmatched:
+        _async_download_and_score(netease_unmatched, cookies, username)
+
+    return RecommendResponse(
+        total=total, page=page, page_size=page_size, total_pages=total_pages,
+        source_type=source_type,
+        source_label=playlist_name or "网易云热榜",
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        tracks=paged,
+    )
+
+    # ── Step 4: 按 preference_score 排序 ──
+    tracks = _sort_tracks_by_preference(tracks, sort_order)
+
+    # ── Step 5: 后台预下载 + 打分（未匹配的在线歌曲，下次变本地） ──
+    netease_unmatched = [t for t in tracks if t.source == "netease" and t.bpm < 0]
+    if netease_unmatched:
+        _async_download_and_score(netease_unmatched, cookies, username)
 
     return RecommendResponse(
         total=len(tracks),
         source_type=source_type,
-        source_label=playlist_info.get("name", "网易云热榜" if source_type == "hot_list" else ""),
+        source_label=playlist_name or ("本地音乐库" if not cookies else "网易云热榜"),
         generated_at=datetime.now(timezone.utc).isoformat(),
         tracks=tracks,
     )
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  真实数据获取 — 网易云 API + 本地特征库匹配
+#  偏好打分 — 基于时段权重的加权求和
 # ══════════════════════════════════════════════════════════════════════
+
+# 10 维特征 key 列表（与 weight_config.json 对齐）
+FEATURE_KEYS = [
+    "tempo", "energy", "vocal_ratio", "bass_intensity", "acousticness",
+    "electronic_score", "rock_score", "instrument_pureness",
+    "midnight_emo", "guofeng_vibe",
+]
+
+# 时段 → 小时范围映射
+SLOT_HOUR_RANGES: Dict[str, tuple] = {
+    "morning":  (7, 9),    # [7, 9)
+    "daytime":  (9, 18),   # [9, 18)
+    "evening":  (18, 22),  # [18, 22)
+    "midnight": (22, 7),   # [22, 24) U [0, 7)
+}
+
+
+def _get_current_slot() -> str:
+    """根据当前小时返回时段 slot key"""
+    hour = datetime.now(timezone.utc).hour
+    # 假设 UTC+8（中国时区）
+    local_hour = (hour + 8) % 24
+    for slot, (start, end) in SLOT_HOUR_RANGES.items():
+        if slot == "midnight":
+            if local_hour >= start or local_hour < end:
+                return slot
+        elif start <= local_hour < end:
+            return slot
+    return "daytime"
+
+
+def _load_weight_config() -> Dict[str, Any]:
+    """加载 weight_config.json，失败时回退默认"""
+    config_path = _PROJECT_ROOT / "config" / "weight_config.json"
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"加载权重配置失败: {e}")
+    # 默认回退
+    return {
+        "slots": {
+            "morning": {"weights": {k: 1.0 for k in FEATURE_KEYS}},
+            "daytime": {"weights": {k: 1.0 for k in FEATURE_KEYS}},
+            "evening": {"weights": {k: 1.0 for k in FEATURE_KEYS}},
+            "midnight": {"weights": {k: 1.0 for k in FEATURE_KEYS}},
+        }
+    }
+
+
+def compute_preference_score(
+    track_features: Dict[str, float],
+    slot: Optional[str] = None,
+) -> int:
+    """
+    基于时段权重计算用户偏好匹配分 (0-100)。
+
+    score = Σ (feature_i × weight_i) / Σ weight_i
+
+    Args:
+        track_features: 10 维特征向量
+        slot: 时段 key，None 则自动选择
+
+    Returns:
+        0-100 整数偏好分
+    """
+    import json as _json
+
+    if slot is None:
+        slot = _get_current_slot()
+
+    config = _load_weight_config()
+    slots = config.get("slots", {})
+    slot_config = slots.get(slot, {})
+    weights = slot_config.get("weights", {})
+
+    if not weights:
+        return 50
+
+    total_weighted = 0.0
+    total_weights = 0.0
+
+    for key in FEATURE_KEYS:
+        feat_val = track_features.get(key, 50.0)
+        w = weights.get(key, 1.0)
+        total_weighted += feat_val * w
+        total_weights += w
+
+    if total_weights == 0:
+        return 50
+
+    raw_score = total_weighted / total_weights
+    # 钳制到 0-100
+    return max(0, min(100, int(round(raw_score))))
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  本地优先推荐 — 从 music_vault.db 拉取已分析歌曲
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _get_local_top_tracks(
+    username: str = "admin",
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """
+    从本地 music_vault.db 中查询已分析歌曲，按用户偏好排序。
+
+    排序规则：
+      1. is_favorite=1 优先
+      2. completion_rate DESC
+      3. 必须有 track_audio_features（已扫描过）
+
+    Returns:
+        [{track_id, title, artist, album, cover_url, file_path,
+          features_dict, source="local"}, ...]
+    """
+    db_path = str(_PROJECT_ROOT / "config" / "music_vault.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+    except Exception as e:
+        logger.error(f"无法连接本地特征库: {e}")
+        return []
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                m.id AS track_id,
+                m.title,
+                m.artist,
+                m.album,
+                m.file_path,
+                COALESCE(ub.is_favorite, 0) AS is_favorite,
+                COALESCE(ub.completion_rate, 0) AS completion_rate
+            FROM music_tracks m
+            INNER JOIN track_audio_features f ON f.track_id = m.id
+            LEFT JOIN user_track_behaviors ub
+                ON ub.track_id = m.id AND ub.username = ?
+            WHERE m.title IS NOT NULL AND m.title != ''
+            ORDER BY
+                COALESCE(ub.is_favorite, 0) DESC,
+                COALESCE(ub.completion_rate, 0) DESC,
+                m.id DESC
+            LIMIT ?
+            """,
+            (username, limit),
+        ).fetchall()
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            track_id = row["track_id"]
+            # 读取特征
+            feats = conn.execute(
+                "SELECT * FROM track_audio_features WHERE track_id = ?",
+                (track_id,),
+            ).fetchone()
+            tags = conn.execute(
+                "SELECT tag_name, confidence, category FROM track_tags WHERE track_id = ?",
+                (track_id,),
+            ).fetchall()
+
+            feature_vec = _build_feature_vector(feats, tags)
+
+            result.append({
+                "track_id": str(track_id),
+                "title": row["title"] or "",
+                "artist": row["artist"] or "",
+                "album": row["album"] or "",
+                "cover_url": "",  # 本地歌曲无封面 URL
+                "file_path": row["file_path"] or "",
+                "features": feature_vec,
+                "source": "local",
+                "is_favorite": row["is_favorite"],
+                "completion_rate": row["completion_rate"],
+            })
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"查询本地 Top 歌曲失败: {e}")
+        return []
+    finally:
+        conn.close()
 
 _NETEASE_HOT_CHART_ID = 3778678  # 网易云「云音乐热歌榜」
 _HOT_CHART_ID = _NETEASE_HOT_CHART_ID
@@ -606,79 +854,279 @@ def _build_recommend_tracks(
     raw_tracks: List[Dict[str, Any]],
     source_type: str,
     playlist_name: str,
+    local_tracks: Optional[List[Dict[str, Any]]] = None,
 ) -> List[RecommendTrack]:
     """
-    将网易云 API 返回的原始歌曲列表转换为 RecommendTrack 列表，
-    每组数据优先匹配本地特征库。
+    构建推荐列表 — 本地优先，网易云兜底。
+
+    策略：
+      1. 先渲染 local_tracks（已含完整特征向量）→ source="local"
+      2. 再遍历 raw_tracks（网易云 API 返回）→ source="netease"
+      3. 每条计算 preference_score
 
     参数：
         raw_tracks: 网易云 API 返回的 tracks 数组
         source_type: "hot_list" | "custom_playlist"
         playlist_name: 歌单名称（用于 source_label）
+        local_tracks: 本地音乐库 Top N（来自 _get_local_top_tracks）
     """
     result: List[RecommendTrack] = []
     source_label = playlist_name or ("网易云热榜" if source_type == "hot_list" else "")
-    count_matched = 0
+    seen_titles: set = set()  # 去重：同名同歌手不重复
 
-    for t in raw_tracks:
-        track_id = str(t.get("id", ""))
-        title = t.get("name", "")
-        # 兼容两种格式：playlist_detail 简化格式 vs 原始 API 格式
+    def _add_track(t: Dict[str, Any], src: str, features: Optional[Dict[str, float]] = None) -> bool:
+        """添加一条推荐，返回 True 表示新增，False 表示重复跳过"""
+        title = t.get("title", "") or t.get("name", "")
+        artist = ""
         if "ar" in t:
             artist = ", ".join(ar.get("name", "") for ar in t.get("ar", []))
-            album = t.get("al", {}).get("name", "")
-            cover_url = t.get("al", {}).get("picUrl", "")
         else:
-            artist = t.get("artists", "")
-            album = t.get("album", "")
-            cover_url = t.get("picUrl", "")
+            artist = t.get("artist", "") or t.get("artists", "")
+        dedup_key = f"{title.strip().lower()}||{artist.strip().lower()}"
+        if dedup_key in seen_titles:
+            return False
+        seen_titles.add(dedup_key)
 
-        # ── 查询本地特征 ──
-        local = _get_local_features(title, artist)
-
-        if local:
-            count_matched += 1
-            result.append(
-                RecommendTrack(
-                    track_id=track_id,
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    cover_url=cover_url,
-                    bpm=local["tempo"],
-                    vocal_ratio=local["vocal_ratio"],
-                    energy=local["energy"],
-                    danceability=50.0,
-                    acousticness=local["acousticness"],
-                    instrumentalness=local["instrument_pureness"],
-                    valence=local["midnight_emo"],
-                    source_label=source_label,
-                )
-            )
+        # 构建 features
+        feats = features or t.get("features")
+        if not feats and src == "netease":
+            feats = _get_local_features(title, artist)
+        if feats:
+            bpm = feats.get("tempo", 50.0)
+            vocal_ratio = feats.get("vocal_ratio", 50.0)
+            energy = feats.get("energy", 50.0)
+            acousticness = feats.get("acousticness", 50.0)
+            instrumentalness = feats.get("instrument_pureness", 50.0)
+            valence = feats.get("midnight_emo", 50.0)
+            pref_score = compute_preference_score(feats)
         else:
-            # 未匹配：保留元信息，特征置 -1 表示待扫描
-            result.append(
-                RecommendTrack(
-                    track_id=track_id,
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    cover_url=cover_url,
-                    bpm=-1.0,
-                    vocal_ratio=-1.0,
-                    energy=-1.0,
-                    danceability=-1.0,
-                    acousticness=-1.0,
-                    instrumentalness=-1.0,
-                    valence=-1.0,
-                    source_label=source_label,
-                )
-            )
+            bpm = vocal_ratio = energy = acousticness = instrumentalness = valence = -1.0
+            pref_score = 0
 
-    matched_ratio = count_matched * 100 / len(result) if result else 0
+        album = t.get("album", "") or (t.get("al", {}).get("name", "") if isinstance(t.get("al"), dict) else "")
+        cover_url = t.get("cover_url", "") or (t.get("al", {}).get("picUrl", "") if isinstance(t.get("al"), dict) else "")
+        track_id = str(t.get("track_id", "") or t.get("id", ""))
+        file_path = t.get("file_path", "")
+
+        result.append(RecommendTrack(
+            track_id=track_id,
+            title=title,
+            artist=artist,
+            album=album,
+            cover_url=cover_url,
+            bpm=bpm,
+            vocal_ratio=vocal_ratio,
+            energy=energy,
+            danceability=50.0,
+            acousticness=acousticness,
+            instrumentalness=instrumentalness,
+            valence=valence,
+            source_label=source_label,
+            source=src,
+            preference_score=pref_score,
+            file_path=file_path,
+        ))
+        return True
+
+    # ── Step 1: 本地歌曲优先 ──
+    local_count = 0
+    if local_tracks:
+        for lt in local_tracks:
+            if _add_track(lt, "local", lt.get("features")):
+                local_count += 1
+
+    # ── Step 2: 网易云兜底 ──
+    netease_count = 0
+    for t in raw_tracks:
+        if _add_track(t, "netease"):
+            netease_count += 1
+
     logger.info(
         f"推荐构建完成: total={len(result)}, "
-        f"matched={count_matched} ({matched_ratio:.0f}%), "
+        f"local={local_count}, netease={netease_count}, "
         f"source={source_label}"
     )
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  排序 + 后台自动解析网易云歌单
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _sort_tracks_by_preference(
+    tracks: List[RecommendTrack],
+    sort_order: str = "desc",
+) -> List[RecommendTrack]:
+    """按 preference_score 排序。desc=高分优先，asc=低分优先。"""
+    reverse = sort_order == "desc"
+    return sorted(tracks, key=lambda t: t.preference_score, reverse=reverse)
+
+
+def _async_fetch_netease_playlist(
+    playlist_id: int,
+    source_type: str,
+    username: str = "admin",
+) -> None:
+    """
+    后台线程：拉取网易云歌单 → 下载新歌 → CAS 存储 → 自动打分 → 写入 DB。
+
+    不阻塞推荐响应，处理结果写入 music_vault.db，
+    下次刷新时新歌自动以 source=\"local\" 出现在推荐流中。
+    """
+    import threading
+
+    def _worker() -> None:
+        try:
+            cookies = _load_netease_cookies()
+            if not cookies:
+                logger.info("[AsyncPlaylist] 无有效 Cookie，跳过在线歌单拉取")
+                return
+
+            # ── 拉取歌单 ──
+            from music_api import playlist_detail
+
+            playlist_info = playlist_detail(playlist_id, cookies)
+            raw_tracks = playlist_info.get("tracks", [])
+            if not raw_tracks:
+                logger.info("[AsyncPlaylist] 歌单为空，跳过")
+                return
+
+            playlist_name = playlist_info.get("name", "")
+            logger.info(
+                f"[AsyncPlaylist] 拉取到 {len(raw_tracks)} 首歌单歌曲: {playlist_name}"
+            )
+
+            # ── 构建网易云歌曲列表 ──
+            netease_tracks = _build_recommend_tracks(
+                raw_tracks, source_type,
+                playlist_name or "网易云热榜",
+                local_tracks=None,  # 不加本地，纯网易云
+            )
+
+            # ── 筛选未匹配本地的歌曲 ──
+            unmatched = [t for t in netease_tracks if t.bpm < 0 and t.source == "netease"]
+            logger.info(
+                f"[AsyncPlaylist] 其中 {len(unmatched)} 首未在本地库，将下载+打分"
+            )
+
+            if unmatched:
+                _async_download_and_score(unmatched, cookies, username)
+
+        except Exception as e:
+            logger.warning(f"[AsyncPlaylist] 后台歌单解析失败: {e}")
+
+    t = threading.Thread(
+        target=_worker, daemon=True, name="async-netease-playlist"
+    )
+    t.start()
+    logger.info(f"[AsyncPlaylist] 已启动后台歌单解析线程 (playlist_id={playlist_id})")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  异步下载 + 自动打分（后台线程，不阻塞推荐响应）
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _async_download_and_score(
+    tracks: List[RecommendTrack],
+    cookies: Dict[str, str],
+    username: str = "admin",
+) -> None:
+    """
+    后台线程：下载在线歌曲 → CAS 存储 → 自动打分 → 写入 DB。
+
+    对 source="netease" 且 bpm < 0（未匹配本地特征库）的歌曲：
+      1. url_v1() 获取下载链接
+      2. SongStorageService.download_and_store() → CAS 存储
+      3. _score_single_track() → librosa + PANNs + LLM + 评分 → 写入 DB
+      4. user_track_behaviors 插入初始记录
+    """
+    import threading
+
+    def _worker() -> None:
+        try:
+            from music_api import url_v1
+            from music_downloader import MusicDownloader
+            from services.song_storage import SongStorageService
+
+            storage = SongStorageService()
+            downloader = MusicDownloader()
+
+            for track in tracks:
+                try:
+                    song_id = track.track_id
+                    title = track.title
+                    artist = track.artist
+                    logger.info(f"[Async] 开始处理: {title} - {artist} (id={song_id})")
+
+                    # Step 1: 获取下载链接
+                    download_url = url_v1(song_id, "exhigh", cookies)
+                    if not download_url:
+                        logger.warning(f"[Async] 无法获取下载链接: {title}")
+                        continue
+
+                    # Step 2: CAS 下载存储
+                    store_path, content_hash = storage.download_and_store(
+                        username=username,
+                        download_url=download_url,
+                        metadata={
+                            "title": title,
+                            "artist": artist,
+                            "ext": "mp3",
+                        },
+                    )
+                    logger.info(f"[Async] CAS 存储完成: {store_path}")
+
+                    # Step 3: 自动打分（librosa + PANNs + LLM + scoring → DB）
+                    try:
+                        from music_processor.single_scorer import score_single_track
+
+                        score_result = score_single_track(
+                            file_path=str(store_path),
+                            title=title,
+                            artist=artist,
+                            album=track.album,
+                            username=username,
+                        )
+                        logger.info(
+                            f"[Async] 打分完成: {title}, "
+                            f"pref_score={score_result.get('preference_score', 0)}"
+                        )
+                    except ImportError:
+                        logger.warning("[Async] single_scorer 模块不可用，跳过打分")
+                    except Exception as e:
+                        logger.warning(f"[Async] 打分失败: {title}, error={e}")
+
+                    # Step 4: 确保 user_track_behaviors 有记录
+                    _ensure_user_behavior(str(store_path), username)
+
+                except Exception as e:
+                    logger.warning(f"[Async] 处理歌曲失败: {track.title}, error={e}")
+                    continue
+
+            logger.info(f"[Async] 后台下载打分完成，共处理 {len(tracks)} 首")
+
+        except Exception as e:
+            logger.error(f"[Async] 后台线程异常: {e}")
+
+    t = threading.Thread(target=_worker, daemon=True, name="async-download-score")
+    t.start()
+    logger.info(f"[Async] 已启动后台下载打分线程 ({len(tracks)} 首)")
+
+
+def _ensure_user_behavior(file_path: str, username: str = "admin") -> None:
+    """确保 user_track_behaviors 中存在该歌曲记录（幂等）"""
+    db_path = str(_PROJECT_ROOT / "config" / "music_vault.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT OR IGNORE INTO user_track_behaviors "
+            "(track_id, username, is_favorite) "
+            "SELECT id, ?, 0 FROM music_tracks WHERE file_path = ?",
+            (username, file_path),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"写入 user_track_behaviors 失败: {e}")

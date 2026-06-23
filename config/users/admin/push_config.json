@@ -3,7 +3,7 @@
     {
       "collapsed": false,
       "content": "下载完成",
-      "enabled": false,
+      "enabled": true,
       "event_template": {
         "__tplId": "",
         "content": "歌曲《{song_name}》下载完成\n歌手：{artist}\n音质：{quality}\n文件大小：{file_size}",

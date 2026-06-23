@@ -30,8 +30,11 @@ export interface RecommendTrack {
   instrumentalness: number
   valence: number
   source_label: string
+  source: string         // "local" | "netease"
+  preference_score: number  // 0-100 偏好匹配分
   file_path?: string
   total_duration?: number
+  danceability?: number
 }
 
 export interface LyricLine {
@@ -75,6 +78,7 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   const playlistIndex = ref(-1)
   const sourceType = ref('hot_list')
   const customPlaylistId = ref('')
+  const sortOrder = ref('desc')
 
   // ── 歌词 ──
   const lyricLines = ref<LyricLine[]>([])
@@ -216,7 +220,10 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   async function fetchRecommend() {
     recommendLoading.value = true
     try {
-      const params: Record<string, string> = { source_type: sourceType.value }
+      const params: Record<string, string> = {
+        source_type: sourceType.value,
+        sort_order: sortOrder.value,
+      }
       if (sourceType.value === 'custom_playlist') {
         if (!customPlaylistId.value.trim()) {
           (window as any).__snackbar?.('请输入歌单 ID', 'warning')
@@ -303,7 +310,7 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     isPlaying, playElapsed, playedAccum, hasAudioSource,
     currentTrack, progressPercent,
     recommendTracks, recommendLoading, playlist, playlistIndex,
-    sourceType, customPlaylistId,
+    sourceType, customPlaylistId, sortOrder,
     lyricLines, activeLyricIdx, lyricLoading, visibleLyricLines,
     // 播放控制
     playTrack, togglePlay, nextTrack, prevTrack, seekProgress,
