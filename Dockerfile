@@ -1,5 +1,5 @@
 # ============ 阶段1：编译前端 ============
-FROM docker.m.daocloud.io/library/node:20-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -7,14 +7,12 @@ COPY frontend/ ./
 RUN npm run build
 
 # ============ 阶段2：运行后端 ============
-FROM docker.m.daocloud.io/library/python:3.12-slim
+FROM python:3.12-slim
 WORKDIR /app
 
 # 1. 优先安装依赖（利用缓存）
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    -i https://mirrors.aliyun.com/pypi/simple/ \
-    -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 2. 预装 wget（供 entrypoint 下载 PANNs 模型使用）
 RUN apt-get update && apt-get install -y --no-install-recommends wget && \
