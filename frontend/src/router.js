@@ -72,6 +72,12 @@ const routes = [
     name: 'ApiDocs',
     component: () => import('@/views/ApiDocs.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/mixer',
+    name: 'WeightSettings',
+    component: () => import('@/views/WeightSettings.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

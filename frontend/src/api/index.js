@@ -202,3 +202,13 @@ export function getApiDocs() {
 export function healthCheck() {
   return api.get('/api/health')
 }
+
+// ==================== 权重配置 ====================
+
+export function getWeightConfig() {
+  return api.get('/api/v3/config/weights')
+}
+
+export function saveWeightConfig(data) {
+  return api.post('/api/v3/config/weights', data)
+}

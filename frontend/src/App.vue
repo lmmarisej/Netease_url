@@ -167,6 +167,7 @@ const menuItems = [
   { to: '/tasks', icon: 'mdi-chart-bar', title: '任务管理' },
   { to: '/logs', icon: 'mdi-text-box-outline', title: '运行日志' },
   { to: '/api-docs', icon: 'mdi-code-json', title: 'API 文档' },
+  { to: '/mixer', icon: 'mdi-tune-vertical-variant', title: '权重调音台' },
 ]
 
 function toggleTheme() {

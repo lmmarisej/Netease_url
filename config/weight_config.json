@@ -1,0 +1,70 @@
+{
+  "version": "2.0.0",
+  "description": "基于动态时间权重的音乐推荐排序配置。每个时段按情绪氛围精细调校乘数权重。",
+  "slots": {
+    "morning": {
+      "label": "元气清晨 (07:00-09:00)",
+      "comment": "轻柔唤醒，原声自然，拒绝刺激",
+      "weights": {
+        "tempo": 0.8,
+        "energy": 0.6,
+        "vocal_ratio": 1.0,
+        "bass_intensity": 0.5,
+        "acousticness": 1.5,
+        "electronic_score": 0.3,
+        "rock_score": 0.3,
+        "instrument_pureness": 1.3,
+        "midnight_emo": 0.2,
+        "guofeng_vibe": 1.2
+      }
+    },
+    "daytime": {
+      "label": "高效白昼 (09:00-18:00)",
+      "comment": "律动聚焦，人声清晰，适度电子提神",
+      "weights": {
+        "tempo": 1.2,
+        "energy": 1.0,
+        "vocal_ratio": 1.1,
+        "bass_intensity": 0.9,
+        "acousticness": 0.7,
+        "electronic_score": 1.1,
+        "rock_score": 0.8,
+        "instrument_pureness": 1.4,
+        "midnight_emo": 0.4,
+        "guofeng_vibe": 1.0
+      }
+    },
+    "evening": {
+      "label": "多巴胺黄昏 (18:00-22:00)",
+      "comment": "高能释放，重低音轰炸，电子拉满",
+      "weights": {
+        "tempo": 1.5,
+        "energy": 1.6,
+        "vocal_ratio": 1.2,
+        "bass_intensity": 1.5,
+        "acousticness": 0.4,
+        "electronic_score": 1.5,
+        "rock_score": 1.2,
+        "instrument_pureness": 0.7,
+        "midnight_emo": 1.1,
+        "guofeng_vibe": 0.8
+      }
+    },
+    "midnight": {
+      "label": "静谧深夜 (22:00-07:00)",
+      "comment": "慢速沉浸，人声贴耳，情绪深邃",
+      "weights": {
+        "tempo": 0.5,
+        "energy": 0.3,
+        "vocal_ratio": 1.4,
+        "bass_intensity": 0.7,
+        "acousticness": 1.3,
+        "electronic_score": 0.6,
+        "rock_score": 0.2,
+        "instrument_pureness": 1.2,
+        "midnight_emo": 1.8,
+        "guofeng_vibe": 1.1
+      }
+    }
+  }
+}
