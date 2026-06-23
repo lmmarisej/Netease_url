@@ -89,7 +89,7 @@
     </template>
 
     <!-- 全局播放器底栏（v-footer + v-show，始终在 DOM 中让 Vuetify 正确计算布局） -->
-    <v-footer v-show="playerFilename" app height="56" class="pa-0" style="z-index:100;border-top:1px solid rgb(var(--v-theme-surface-variant))">
+    <v-footer v-show="playerFilename" app height="56" class="pa-0" style="border-top:1px solid rgb(var(--v-theme-surface-variant))">
       <div class="d-flex align-center ga-3 px-4 w-100" style="height:56px;background:rgb(var(--v-theme-surface))">
         <v-icon class="flex-shrink-0" color="primary">mdi-music-note</v-icon>
         <strong class="text-body-2 text-truncate" style="max-width:240px;">{{ playerFilename }}</strong>
@@ -158,16 +158,16 @@ function handleLogout() {
 
 const menuItems = [
   { to: '/', icon: 'mdi-magnify', title: '音乐搜索' },
-  { to: '/lyrics', icon: 'mdi-script-text-outline', title: '歌词查询' },
   { to: '/files', icon: 'mdi-folder-multiple', title: '文件管理' },
+  { to: '/lyrics', icon: 'mdi-script-text-outline', title: '歌词查询' },
   { to: '/sync', icon: 'mdi-playlist-music', title: '歌单同步' },
-  { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
-  { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },
+  { to: '/mixer', icon: 'mdi-tune-vertical-variant', title: '权重调音台' },
   { to: '/radar', icon: 'mdi-dna', title: 'DNA谱图' },
+  { to: '/magicpush', icon: 'mdi-bell-ring-outline', title: '消息推送' },
+  { to: '/config', icon: 'mdi-cog-outline', title: '配置' },
   { to: '/tasks', icon: 'mdi-chart-bar', title: '任务管理' },
   { to: '/logs', icon: 'mdi-text-box-outline', title: '运行日志' },
   { to: '/api-docs', icon: 'mdi-code-json', title: 'API 文档' },
-  { to: '/mixer', icon: 'mdi-tune-vertical-variant', title: '权重调音台' },
 ]
 
 function toggleTheme() {
@@ -238,6 +238,12 @@ if (typeof window !== 'undefined') {
 }
 </script>
 
-<style scoped>
-/* scoped empty - theme handles styling */
+<style>
+/* 临时抽屉遮罩层：overlay 通过 Teleport 渲染在 scoped 之外，需全局样式确保覆盖 v-footer（app z=1004） */
+.v-overlay-container {
+  z-index: 2400 !important;
+}
+.v-overlay-container .v-overlay {
+  z-index: 2400 !important;
+}
 </style>
