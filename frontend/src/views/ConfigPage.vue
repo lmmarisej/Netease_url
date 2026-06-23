@@ -63,8 +63,12 @@ async function loadDownloadSettings(){try{const r=await getSettings();if(r?.stat
 async function saveDownloadSettings(){savingDownload.value=true;try{await saveSettings({download_dir:downloadDir.value,download_save_local:saveLocal.value,download_browser:browserDownload.value,download_default_quality:defaultQuality.value,download_quality_in_filename:qualityInFilename.value,download_lyric_save_lrc:lyricSaveLrc.value});window.__snackbar?.('已保存','success')}catch(e){window.__snackbar?.('保存失败','error')}finally{savingDownload.value=false}}
 async function loadCookieConfig(){try{const r=await getCookie();if(r?.status===200&&r.data){cookieList.value=r.data.cookies||[]}}catch(e){}}
 function addCookieRow(){cookieList.value.push({name:'',content:''})}
-function doDeleteCookie(i){cookieList.value.splice(i,1)}
-async function saveAllCookies(){savingCookie.value=true;try{for(const c of cookieList.value){if(!c.name.trim()||!c.content.trim())continue;await apiSaveCookie({name:c.name.trim(),cookie:c.content.trim()})}if(cookieList.value.length>0&&cookieList.value[0].name){await activateCookie(cookieList.value[0].name)}window.__snackbar?.('已保存','success');await loadCookieConfig()}catch(e){window.__snackbar?.('保存失败','error')}finally{savingCookie.value=false}}
+async function doDeleteCookie(i){
+  const name = cookieList.value[i]?.name?.trim()
+  cookieList.value.splice(i,1)
+  if (name) { try { await deleteCookie(name) } catch {} }
+}
+async function saveAllCookies(){savingCookie.value=true;try{for(const c of cookieList.value){if(!c.name.trim()||!c.content.trim())continue;await apiSaveCookie({name:c.name.trim(),cookie:c.content.trim()})}if(cookieList.value.length>0&&cookieList.value[0].name){await activateCookie(cookieList.value[0].name)}window.__snackbar?.('已保存','success')}catch(e){window.__snackbar?.('保存失败','error')}finally{savingCookie.value=false}}
 async function loadQQCookie(){try{const r=await getQQCookie();if(r?.status===200&&r.data){qqCookie.value=r.data.content||'';qqCookieConfigured.value=!!r.data.configured}}catch(e){}}
 async function saveQQCookieConfig(){savingQQCookie.value=true;try{const r=await saveQQCookie(qqCookie.value.trim());qqCookieConfigured.value=!!(r?.data?.configured);window.__snackbar?.('QQ音乐 Cookie 已保存','success')}catch(e){window.__snackbar?.('保存失败','error')}finally{savingQQCookie.value=false}}
 onMounted(()=>{loadDownloadSettings();loadCookieConfig();loadQQCookie()})

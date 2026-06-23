@@ -21,6 +21,13 @@ config/sync_config.json
 # Cookie（敏感信息）
 config/cookie.txt
 cookie.txt
+config/users/**/cookies.json
+config/users/**/*cookie*.json
+
+# 本地数据库（运行时生成）
+config/*.db
+config/*.db-shm
+config/*.db-wal
 
 # 环境变量
 .env

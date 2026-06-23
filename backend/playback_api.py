@@ -135,6 +135,13 @@ class RecommendResponse(BaseModel):
     tracks: List[RecommendTrack]
 
 
+class LikeRequest(BaseModel):
+    """红心/取消红心请求"""
+
+    track_id: int = Field(..., gt=0, description="网易云歌曲 ID")
+    like: bool = Field(..., description="True=红心喜欢, False=取消红心")
+
+
 # ────────────────────────── SQLAlchemy 数据模型 ──────────────────────────
 
 
@@ -339,10 +346,10 @@ async def get_recommend(
     支持 sort_order=asc/desc 按偏好分排序
     """
     # ── 参数校验 ──
-    if source_type not in ("hot_list", "custom_playlist", "local_library"):
+    if source_type not in ("hot_list", "custom_playlist", "local_library", "liked"):
         raise HTTPException(
             status_code=400,
-            detail="source_type 仅支持 hot_list / custom_playlist / local_library",
+            detail="source_type 仅支持 hot_list / custom_playlist / local_library / liked",
         )
 
     if source_type == "custom_playlist" and not playlist_id:
@@ -363,6 +370,53 @@ async def get_recommend(
             username = u
     except ImportError:
         pass
+
+    # ══════════ 分支：我喜欢的音乐 ══════════
+    if source_type == "liked":
+        cookies = _load_netease_cookies()
+        if not cookies:
+            raise HTTPException(status_code=400, detail="需要配置网易云 Cookie")
+        uid = 0
+        try:
+            from music_api import user_account
+            account = user_account(cookies)
+            uid = account.get('account', {}).get('id', 0)
+        except Exception:
+            pass
+        if not uid:
+            raise HTTPException(status_code=400, detail="未登录网易云账号")
+        raw_tracks: List[Dict[str, Any]] = []
+        try:
+            from music_api import user_playlist, playlist_detail
+            playlists = user_playlist(uid, cookies, limit=50)
+            liked_pid = None
+            for p in playlists.get('playlist', []):
+                if p.get('specialType') == 5:
+                    liked_pid = p['id']
+                    break
+            if liked_pid:
+                info = playlist_detail(liked_pid, cookies)
+                raw_tracks = info.get('tracks', [])
+            else:
+                logger.info("未找到喜欢的音乐歌单(specialType=5)")
+        except Exception as e:
+            logger.warning(f"获取喜欢列表失败: {e}")
+
+        tracks = _build_recommend_tracks(
+            raw_tracks, source_type, "我喜欢的音乐",
+            local_tracks=None,
+        )
+        tracks = _sort_tracks_by_preference(tracks, sort_order)
+        total = len(tracks)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        paged = tracks[(page - 1) * page_size : page * page_size]
+        return RecommendResponse(
+            total=total, page=page, page_size=page_size, total_pages=total_pages,
+            source_type=source_type,
+            source_label="我喜欢的音乐",
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            tracks=paged,
+        )
 
     # ══════════ 分支：本地音乐库 ══════════
     if source_type == "local_library":
@@ -445,6 +499,179 @@ async def get_recommend(
         generated_at=datetime.now(timezone.utc).isoformat(),
         tracks=tracks,
     )
+
+
+# ────────────────────────── 喜欢 / 取消喜欢 ──────────────────────────
+
+
+def _extract_netease_uid(cookies: Dict[str, str]) -> int:
+    """从 MUSIC_U cookie 中提取网易云用户 UID"""
+    import base64
+    music_u = cookies.get('MUSIC_U', '')
+    if not music_u:
+        return 0
+    try:
+        payload = music_u.split('.')[1] if '.' in music_u else music_u
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += '=' * padding
+        decoded = base64.urlsafe_b64decode(payload)
+        data = json.loads(decoded)
+        return data.get('userId', data.get('uid', 0))
+    except Exception:
+        return 0
+
+
+@router.get("/account", response_model=Dict[str, Any])
+async def get_account() -> JSONResponse:
+    """获取当前登录用户的网易云账号信息
+
+    自动从 cookie 中提取 uid，无需手动传参。
+
+    返回：
+        200: {"code": 200, "data": {"uid": ..., "nickname": ..., "avatarUrl": ...}}
+        400: 未登录
+        502: API 调用失败
+    """
+    cookies = _load_netease_cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie")
+
+    try:
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        raw = api.get_user_account(cookies)
+        profile = raw.get('profile', {})
+        account = raw.get('account', {})
+        return JSONResponse(content={
+            "code": 200,
+            "data": {
+                "uid": profile.get('userId') or account.get('id', 0),
+                "nickname": profile.get('nickname', ''),
+                "avatarUrl": profile.get('avatarUrl', ''),
+                "vipType": profile.get('vipType', 0),
+            },
+        })
+    except Exception as e:
+        logger.error(f"获取账号信息失败: {e}")
+        raise HTTPException(status_code=502, detail=f"网易云 API 调用失败: {e}")
+
+
+@router.post("/like", response_model=Dict[str, Any])
+async def set_like(req: LikeRequest) -> JSONResponse:
+    """红心或取消红心歌曲（与网易云同步）
+
+    调用网易云 weapi/radio/like 接口，并在本地数据库同步更新 is_favorite 状态。
+
+    返回：
+        200: {"code": 200, "message": "...", "data": {"track_id": ..., "is_favorite": ...}}
+        400: 参数错误
+        502: 网易云 API 调用失败
+    """
+    cookies = _load_netease_cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie，请先在设置中登录")
+
+    try:
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        result = api.set_like(req.track_id, req.like, cookies)
+        # 同步更新本地数据库
+        _update_local_favorite(str(req.track_id), req.like)
+        return JSONResponse(content={
+            "code": 200,
+            "message": "红心成功" if req.like else "取消红心成功",
+            "data": {"track_id": req.track_id, "is_favorite": req.like},
+        })
+    except Exception as e:
+        logger.error(f"喜欢操作失败: track_id={req.track_id}, like={req.like}, error={e}")
+        raise HTTPException(status_code=502, detail=f"网易云 API 调用失败: {e}")
+
+
+@router.get("/playlists", response_model=Dict[str, Any])
+async def get_user_playlists(
+    uid: int = Query(default=0, ge=0, description="网易云用户 ID（0 则自动从 Cookie 提取）"),
+    limit: int = Query(default=30, ge=1, le=100, description="返回数量"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
+) -> JSONResponse:
+    """获取用户歌单列表（包含创建和收藏的歌单）
+
+    自动从 Cookie 提取 uid（无需手动传参）。
+    返回的 playlist 数组中，specialType=5 的即为「我喜欢的音乐」。
+
+    返回：
+        200: {"code":200, "data":{"playlist":[{"id":...,"name":...,"specialType":5,...}]}}
+        400: 未登录
+        502: API 调用失败
+    """
+    cookies = _load_netease_cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie")
+
+    if uid == 0:
+        uid = _extract_netease_uid(cookies)
+    if uid == 0:
+        raise HTTPException(status_code=400, detail="无法获取用户 ID，请检查 Cookie 是否有效")
+
+    try:
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        result = api.get_user_playlist(uid, cookies, limit, offset)
+        return JSONResponse(content={"code": 200, "data": result})
+    except Exception as e:
+        logger.error(f"获取用户歌单失败: uid={uid}, error={e}")
+        raise HTTPException(status_code=502, detail=f"网易云 API 调用失败: {e}")
+
+
+@router.get("/likelist", response_model=Dict[str, Any])
+async def get_likelist(
+    uid: int = Query(default=0, ge=0, description="网易云用户 ID（0 则自动从 Cookie 提取）"),
+) -> JSONResponse:
+    """获取用户喜欢的歌曲列表（与网易云同步）
+
+    如不传 uid 参数，将自动从 Cookie 中提取当前登录用户的 ID。
+
+    返回：
+        200: {"code": 200, "data": {"songIds": [...], ...}}
+        400: 参数错误/未登录
+        502: 网易云 API 调用失败
+    """
+    cookies = _load_netease_cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie")
+
+    # 自动提取 uid
+    if uid == 0:
+        uid = _extract_netease_uid(cookies)
+    if uid == 0:
+        raise HTTPException(status_code=400, detail="无法获取用户 ID，请检查 Cookie 是否有效")
+
+    try:
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        result = api.get_likelist(uid, cookies)
+        return JSONResponse(content={"code": 200, "data": result})
+    except Exception as e:
+        logger.error(f"获取喜欢列表失败: uid={uid}, error={e}")
+        raise HTTPException(status_code=502, detail=f"网易云 API 调用失败: {e}")
+
+
+def _update_local_favorite(track_id: str, is_favorite: bool, username: str = "admin") -> None:
+    """更新本地数据库中的 is_favorite 状态"""
+    db_path = str(_PROJECT_ROOT / "config" / "music_vault.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO user_track_behaviors (track_id, username, is_favorite) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(track_id, username) DO UPDATE SET is_favorite = ?",
+            (track_id, username, int(is_favorite), int(is_favorite)),
+        )
+        conn.commit()
+        conn.close()
+        logger.info(f"本地 is_favorite 已更新: track_id={track_id}, is_favorite={is_favorite}")
+    except Exception as e:
+        logger.warning(f"更新本地 is_favorite 失败: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -876,10 +1103,10 @@ def _build_recommend_tracks(
 
     def _add_track(t: Dict[str, Any], src: str, features: Optional[Dict[str, float]] = None) -> bool:
         """添加一条推荐，返回 True 表示新增，False 表示重复跳过"""
-        title = t.get("title", "") or t.get("name", "")
+        title = t.get("title") or t.get("name") or ""
         artist = ""
         if "ar" in t:
-            artist = ", ".join(ar.get("name", "") for ar in t.get("ar", []))
+            artist = ", ".join(str(ar.get("name") or "") for ar in (t.get("ar") or []))
         else:
             artist = t.get("artist", "") or t.get("artists", "")
         dedup_key = f"{title.strip().lower()}||{artist.strip().lower()}"
@@ -903,8 +1130,16 @@ def _build_recommend_tracks(
             bpm = vocal_ratio = energy = acousticness = instrumentalness = valence = -1.0
             pref_score = 0
 
-        album = t.get("album", "") or (t.get("al", {}).get("name", "") if isinstance(t.get("al"), dict) else "")
-        cover_url = t.get("cover_url", "") or (t.get("al", {}).get("picUrl", "") if isinstance(t.get("al"), dict) else "")
+        album = t.get("album") or ""
+        if not album:
+            al = t.get("al")
+            if isinstance(al, dict):
+                album = al.get("name") or ""
+        cover_url = t.get("cover_url") or ""
+        if not cover_url:
+            al = t.get("al")
+            if isinstance(al, dict):
+                cover_url = al.get("picUrl") or ""
         track_id = str(t.get("track_id", "") or t.get("id", ""))
         file_path = t.get("file_path", "")
 

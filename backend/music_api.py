@@ -7,8 +7,11 @@
 - 搜索功能
 - 歌单和专辑详情
 - 二维码登录
+- 歌曲喜欢/取消喜欢（红心）
+- 获取用户喜欢列表
 """
 
+import base64
 import json
 import os
 import urllib.parse
@@ -21,6 +24,9 @@ from enum import Enum
 import requests
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.asymmetric import padding as _asym_padding
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
+from cryptography.hazmat.backends import default_backend
 
 
 def _resolve_ssl_verify():
@@ -93,7 +99,11 @@ class APIConstants:
     ALBUM_DETAIL_API = 'https://music.163.com/api/v1/album/'
     QR_UNIKEY_API = 'https://interface3.music.163.com/eapi/login/qrcode/unikey'
     QR_LOGIN_API = 'https://interface3.music.163.com/eapi/login/qrcode/client/login'
-    
+    RADIO_LIKE_API = 'https://music.163.com/weapi/radio/like'
+    LIKE_LIST_API = 'https://music.163.com/weapi/song/like/get'
+    USER_ACCOUNT_API = 'https://music.163.com/api/nuser/account/get'
+    USER_PLAYLIST_API = 'https://music.163.com/api/user/playlist'
+
     # 默认配置
     DEFAULT_CONFIG = {
         "os": "pc",
@@ -110,79 +120,158 @@ class APIConstants:
     }
 
 
+# ── RSA 公钥常量（weapi 加密用） ──
+_RSA_MODULUS_HEX = (
+    "00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b7"
+    "25152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e"
+    "0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce"
+    "10b424d813cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462"
+    "db0a22b8e7"
+)
+_RSA_MODULUS = int(_RSA_MODULUS_HEX, 16)
+_RSA_EXPONENT = 65537
+_RSA_KEY = RSAPublicNumbers(_RSA_EXPONENT, _RSA_MODULUS).public_key(default_backend())
+_WEAPI_NONCE = "0CoJUm6Qyw8W8jud"
+_WEAPI_IV = "0102030405060708"
+
+
 class CryptoUtils:
     """加密工具类"""
-    
+
     @staticmethod
     def hex_digest(data: bytes) -> str:
         """将字节数据转换为十六进制字符串"""
         return "".join([hex(d)[2:].zfill(2) for d in data])
-    
+
     @staticmethod
     def hash_digest(text: str) -> bytes:
         """计算MD5哈希值"""
         return md5(text.encode("utf-8")).digest()
-    
+
     @staticmethod
     def hash_hex_digest(text: str) -> str:
         """计算MD5哈希值并转换为十六进制字符串"""
         return CryptoUtils.hex_digest(CryptoUtils.hash_digest(text))
-    
+
     @staticmethod
     def encrypt_params(url: str, payload: Dict[str, Any]) -> str:
-        """加密请求参数"""
+        """eapi 加密请求参数（用于 /eapi/* 接口）"""
         url_path = urllib.parse.urlparse(url).path.replace("/eapi/", "/api/")
         digest = CryptoUtils.hash_hex_digest(f"nobody{url_path}use{json.dumps(payload)}md5forencrypt")
         params = f"{url_path}-36cd479b6b5-{json.dumps(payload)}-36cd479b6b5-{digest}"
-        
-        # AES加密
+
+        # AES-ECB 加密
         padder = padding.PKCS7(algorithms.AES(APIConstants.AES_KEY).block_size).padder()
         padded_data = padder.update(params.encode()) + padder.finalize()
         cipher = Cipher(algorithms.AES(APIConstants.AES_KEY), modes.ECB())
         encryptor = cipher.encryptor()
         enc = encryptor.update(padded_data) + encryptor.finalize()
-        
+
         return CryptoUtils.hex_digest(enc)
+
+    # ── weapi 加密（用于 /weapi/* 接口，如喜欢/取消喜欢） ──
+
+    @staticmethod
+    def _aes_encrypt_cbc(text: str, key: str) -> str:
+        """AES-128-CBC 加密，Base64 输出"""
+        padder = padding.PKCS7(128).padder()
+        padded = padder.update(text.encode("utf-8")) + padder.finalize()
+        cipher = Cipher(algorithms.AES(key.encode("utf-8")), modes.CBC(_WEAPI_IV.encode("utf-8")))
+        encryptor = cipher.encryptor()
+        enc = encryptor.update(padded) + encryptor.finalize()
+        return base64.b64encode(enc).decode("utf-8")
+
+    @staticmethod
+    def _rsa_encrypt(text: str) -> str:
+        """RSA-1024 加密（PKCS1v15 填充），Base64 输出"""
+        encrypted = _RSA_KEY.encrypt(text[::-1].encode("utf-8"), _asym_padding.PKCS1v15())
+        return base64.b64encode(encrypted).decode("utf-8")
+
+    @staticmethod
+    def weapi_encrypt_params(payload: Dict[str, Any]) -> str:
+        """weapi 加密请求参数，返回 URL-encoded form data 字符串
+
+        两层 AES-CBC：先用固定 NONCE 加密，再用随机密钥加密。
+        encSecKey 用 RSA 公钥加密反转后的随机密钥。
+
+        Returns:
+            "params=...&encSecKey=..." 格式的 form data 字符串
+        """
+        text = json.dumps(payload)
+        # 生成随机密钥（8 bytes → 16 hex chars = 128 bit）
+        secret_key = base64.b16encode(os.urandom(8)).decode("utf-8").lower()
+        # 两层加密
+        params = CryptoUtils._aes_encrypt_cbc(
+            CryptoUtils._aes_encrypt_cbc(text, _WEAPI_NONCE),
+            secret_key,
+        )
+        enc_sec_key = CryptoUtils._rsa_encrypt(secret_key)
+        return f"params={urllib.parse.quote(params)}&encSecKey={urllib.parse.quote(enc_sec_key)}"
 
 
 class HTTPClient:
     """HTTP客户端类"""
-    
+
     @staticmethod
     def post_request(url: str, params: str, cookies: Dict[str, str]) -> str:
-        """发送POST请求并返回文本响应"""
+        """发送 eapi POST 请求并返回文本响应"""
         headers = {
             'User-Agent': APIConstants.USER_AGENT,
             'Referer': APIConstants.REFERER,
         }
-        
+
         request_cookies = APIConstants.DEFAULT_COOKIES.copy()
         request_cookies.update(cookies)
-        
+
         try:
-            response = _session.post(url, headers=headers, cookies=request_cookies, 
+            response = _session.post(url, headers=headers, cookies=request_cookies,
                                    data={"params": params}, timeout=30)
             response.raise_for_status()
             return response.text
         except requests.RequestException as e:
             raise APIException(f"HTTP请求失败: {e}")
-    
+
     @staticmethod
     def post_request_full(url: str, params: str, cookies: Dict[str, str]) -> requests.Response:
-        """发送POST请求并返回完整响应对象"""
+        """发送 eapi POST 请求并返回完整响应对象"""
         headers = {
             'User-Agent': APIConstants.USER_AGENT,
             'Referer': APIConstants.REFERER,
         }
-        
+
         request_cookies = APIConstants.DEFAULT_COOKIES.copy()
         request_cookies.update(cookies)
-        
+
         try:
-            response = _session.post(url, headers=headers, cookies=request_cookies, 
+            response = _session.post(url, headers=headers, cookies=request_cookies,
                                    data={"params": params}, timeout=30)
             response.raise_for_status()
             return response
+        except requests.RequestException as e:
+            raise APIException(f"HTTP请求失败: {e}")
+
+    @staticmethod
+    def post_weapi_request(url: str, payload: Dict[str, Any], cookies: Dict[str, str]) -> str:
+        """发送 weapi POST 请求并返回文本响应
+
+        用于 /weapi/* 接口（如喜欢/取消喜欢、获取喜欢列表等）。
+        body 为 URL-encoded form data: params=...&encSecKey=...
+        """
+        form_data = CryptoUtils.weapi_encrypt_params(payload)
+        headers = {
+            'User-Agent': APIConstants.USER_AGENT,
+            'Referer': APIConstants.REFERER,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+
+        request_cookies = APIConstants.DEFAULT_COOKIES.copy()
+        request_cookies.update(cookies)
+
+        try:
+            response = _session.post(url, headers=headers, cookies=request_cookies,
+                                   data=form_data, timeout=30)
+            response.raise_for_status()
+            return response.text
         except requests.RequestException as e:
             raise APIException(f"HTTP请求失败: {e}")
 
@@ -304,6 +393,31 @@ class NeteaseAPI:
         except json.JSONDecodeError as e:
             raise APIException(f"解析歌曲详情响应失败: {e}")
     
+    def get_songs_detail_batch(self, song_ids: list, cookies: Dict[str, str] = None) -> list:
+        """批量获取多首歌曲详情（用于喜欢列表等场景）
+
+        API: POST https://interface3.music.163.com/api/v3/song/detail
+        一次请求最多传约 1000 个 ID。
+
+        Returns:
+            歌曲列表 [{id, name, ar: [{name}], al: {name, picUrl}}, ...]
+        """
+        results = []
+        chunk_size = 500
+        for i in range(0, len(song_ids), chunk_size):
+            chunk = song_ids[i:i + chunk_size]
+            try:
+                c_data = [{"id": int(sid)} for sid in chunk]
+                data = {'c': json.dumps(c_data)}
+                resp = _session.post(APIConstants.SONG_DETAIL_V3, data=data, timeout=30)
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get('code') == 200 and result.get('songs'):
+                    results.extend(result['songs'])
+            except Exception:
+                continue
+        return results
+    
     def get_lyric(self, song_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:
         """获取歌词信息
         
@@ -397,64 +511,51 @@ class NeteaseAPI:
     
     def get_playlist_detail(self, playlist_id: int, cookies: Dict[str, str]) -> Dict[str, Any]:
         """获取歌单详情
-        
+
+        API: GET https://music.163.com/api/v6/playlist/detail?id=xxx
+
         Args:
             playlist_id: 歌单ID
             cookies: 用户cookies
-            
+
         Returns:
-            歌单详情信息
-            
-        Raises:
-            APIException: API调用失败时抛出
+            歌单详情，包含 tracks 数组（每项含 id/name/ar/al）
         """
         try:
-            data = {'id': playlist_id}
             headers = {
                 'User-Agent': APIConstants.USER_AGENT,
-                'Referer': APIConstants.REFERER
+                'Referer': APIConstants.REFERER,
             }
-            
-            response = _session.post(APIConstants.PLAYLIST_DETAIL_API, data=data, 
-                                   headers=headers, cookies=cookies, timeout=30)
+            url = f"{APIConstants.PLAYLIST_DETAIL_API}?id={playlist_id}"
+            response = _session.get(url, headers=headers, cookies=cookies, timeout=30)
             response.raise_for_status()
-            
             result = response.json()
             if result.get('code') != 200:
                 raise APIException(f"获取歌单详情失败: {result.get('message', '未知错误')}")
-            
             playlist = result.get('playlist', {})
-            info = {
+            tracks = playlist.get('tracks', [])
+            track_ids = [str(t['id']) for t in playlist.get('trackIds', [])]
+            # 若返回的 tracks 不完整（API 默认只返回前 ~10 首），用 trackIds 批量补齐
+            if track_ids and len(tracks) < playlist.get('trackCount', 0):
+                tracks_map = {str(t['id']): t for t in tracks}
+                for i in range(0, len(track_ids), 500):
+                    batch_ids = [int(sid) for sid in track_ids[i:i + 500] if sid not in tracks_map]
+                    if not batch_ids:
+                        continue
+                    song_data = {'c': json.dumps([{'id': sid} for sid in batch_ids])}
+                    song_resp = _session.post(
+                        APIConstants.SONG_DETAIL_V3, data=song_data,
+                        headers=headers, cookies=cookies, timeout=30,
+                    )
+                    song_resp.raise_for_status()
+                    songs = song_resp.json().get('songs', [])
+                    tracks.extend(songs)
+            return {
                 'id': playlist.get('id'),
                 'name': playlist.get('name'),
-                'coverImgUrl': playlist.get('coverImgUrl'),
-                'creator': playlist.get('creator', {}).get('nickname', ''),
                 'trackCount': playlist.get('trackCount'),
-                'description': playlist.get('description', ''),
-                'tracks': []
+                'tracks': tracks,
             }
-            
-            # 获取所有trackIds并分批获取详细信息
-            track_ids = [str(t['id']) for t in playlist.get('trackIds', [])]
-            for i in range(0, len(track_ids), 100):
-                batch_ids = track_ids[i:i+100]
-                song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
-                
-                song_resp = _session.post(APIConstants.SONG_DETAIL_V3, data=song_data, 
-                                        headers=headers, cookies=cookies, timeout=30)
-                song_resp.raise_for_status()
-                
-                song_result = song_resp.json()
-                for song in song_result.get('songs', []):
-                    info['tracks'].append({
-                        'id': song['id'],
-                        'name': song['name'],
-                        'artists': '/'.join(artist['name'] for artist in song['ar']),
-                        'album': song['al']['name'],
-                        'picUrl': song['al']['picUrl']
-                    })
-            
-            return info
         except requests.RequestException as e:
             raise APIException(f"获取歌单详情请求失败: {e}")
         except (json.JSONDecodeError, KeyError) as e:
@@ -554,9 +655,114 @@ class NeteaseAPI:
         enc_id = self.netease_encrypt_id(str(pic_id))
         return f'https://p3.music.126.net/{enc_id}/{pic_id}.jpg?param={size}y{size}'
 
+    # ── 喜欢 / 取消喜欢 ──
+
+    def set_like(self, track_id: int, like: bool, cookies: Dict[str, str]) -> Dict[str, Any]:
+        """红心或取消红心歌曲（与网易云官方客户端同步）
+
+        API: POST https://music.163.com/weapi/radio/like
+
+        Args:
+            track_id: 网易云歌曲ID
+            like: True=红心喜欢, False=取消红心
+            cookies: 用户cookies（需包含 MUSIC_U 等认证字段）
+
+        Returns:
+            API 响应字典，code==200 表示操作成功
+        """
+        payload = {
+            'alg': 'itembased',
+            'trackId': track_id,
+            'like': like,
+            'time': '3',
+        }
+        cookies_copy = dict(cookies)
+        cookies_copy.setdefault('os', 'pc')
+        cookies_copy.setdefault('appver', '2.9.7')
+        response_text = self.http_client.post_weapi_request(
+            APIConstants.RADIO_LIKE_API, payload, cookies_copy
+        )
+        result = json.loads(response_text)
+        if result.get('code') != 200:
+            raise APIException(f"喜欢操作失败: {result.get('message', '未知错误')}")
+        return result
+
+    def get_likelist(self, uid: int, cookies: Dict[str, str]) -> Dict[str, Any]:
+        """获取用户喜欢的歌曲列表（无序）
+
+        API: POST https://music.163.com/weapi/song/like/get
+
+        Args:
+            uid: 网易云用户ID
+            cookies: 用户cookies
+
+        Returns:
+            API 响应字典，包含 songIds 等字段
+        """
+        payload = {'uid': uid}
+        response_text = self.http_client.post_weapi_request(
+            APIConstants.LIKE_LIST_API, payload, cookies
+        )
+        result = json.loads(response_text)
+        if result.get('code') != 200:
+            raise APIException(f"获取喜欢列表失败: {result.get('message', '未知错误')}")
+        return result
+
+    def get_user_account(self, cookies: Dict[str, str]) -> Dict[str, Any]:
+        """获取当前登录用户的账号信息（无需知道 uid）
+
+        API: POST https://music.163.com/api/nuser/account/get
+
+        Args:
+            cookies: 用户cookies
+
+        Returns:
+            API 响应字典，包含 account.id（用户ID）、profile（昵称/头像）等
+        """
+        response_text = self.http_client.post_weapi_request(
+            APIConstants.USER_ACCOUNT_API, {}, cookies
+        )
+        result = json.loads(response_text)
+        if result.get('code') != 200:
+            raise APIException(f"获取用户账号失败: {result.get('message', '未知错误')}")
+        return result
+
+    def get_user_playlist(
+        self, uid: int, cookies: Dict[str, str],
+        limit: int = 30, offset: int = 0,
+    ) -> Dict[str, Any]:
+        """获取用户歌单列表（包含创建和收藏的歌单）
+
+        API: GET https://music.163.com/api/user/playlist?uid=xxx&limit=xxx
+
+        返回的 playlist 数组中，specialType=5 的是「我喜欢的音乐」。
+
+        Args:
+            uid: 网易云用户ID
+            cookies: 用户cookies
+            limit: 返回数量
+            offset: 偏移量
+
+        Returns:
+            API 响应字典，包含 playlist 数组
+        """
+        url = f"{APIConstants.USER_PLAYLIST_API}?uid={uid}&limit={limit}&offset={offset}"
+        headers = {
+            'User-Agent': APIConstants.USER_AGENT,
+            'Referer': APIConstants.REFERER,
+        }
+        try:
+            response = _session.get(url, headers=headers, cookies=cookies, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            if result.get('code') != 200:
+                raise APIException(f"获取用户歌单失败: {result.get('message', '未知错误')}")
+            return result
+        except requests.RequestException as e:
+            raise APIException(f"获取用户歌单请求失败: {e}")
+
 
 class QRLoginManager:
-    """二维码登录管理器"""
     
     def __init__(self):
         self.http_client = HTTPClient()
@@ -743,6 +949,30 @@ def qr_login() -> Optional[str]:
     return manager.qr_login()
 
 
+def set_like(track_id: int, like: bool, cookies: Dict[str, str]) -> Dict[str, Any]:
+    """红心/取消红心歌曲（向后兼容）"""
+    api = NeteaseAPI()
+    return api.set_like(track_id, like, cookies)
+
+
+def get_likelist(uid: int, cookies: Dict[str, str]) -> Dict[str, Any]:
+    """获取喜欢列表（向后兼容）"""
+    api = NeteaseAPI()
+    return api.get_likelist(uid, cookies)
+
+
+def user_account(cookies: Dict[str, str]) -> Dict[str, Any]:
+    """获取当前用户账号信息（向后兼容）"""
+    api = NeteaseAPI()
+    return api.get_user_account(cookies)
+
+
+def user_playlist(uid: int, cookies: Dict[str, str], limit: int = 30, offset: int = 0) -> Dict[str, Any]:
+    """获取用户歌单（向后兼容）"""
+    api = NeteaseAPI()
+    return api.get_user_playlist(uid, cookies, limit, offset)
+
+
 if __name__ == "__main__":
     # 测试代码
     print("网易云音乐API模块")
@@ -754,3 +984,7 @@ if __name__ == "__main__":
     print("- 歌单详情")
     print("- 专辑详情")
     print("- 二维码登录")
+    print("- 喜欢/取消喜欢（红心）")
+    print("- 获取喜欢列表")
+    print("- 获取用户账号信息")
+    print("- 获取用户歌单列表")

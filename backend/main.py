@@ -450,6 +450,19 @@ def _get_user_downloads_path() -> Path:
     return p
 
 
+def _extract_uid_from_cookies(cookies: Dict[str, str]) -> int:
+    """通过网易云账户 API 获取用户 UID"""
+    try:
+        from music_api import user_account
+        result = user_account(cookies)
+        uid = result.get('account', {}).get('id', 0)
+        if uid:
+            return uid
+    except Exception:
+        pass
+    return 0
+
+
 SYNC_CONFIG_FILE = str(_PROJECT_ROOT / 'config' / 'sync_config.json')
 SETTINGS_CONFIG_FILE = str(_PROJECT_ROOT / 'config' / 'settings.json')
 
@@ -2724,51 +2737,84 @@ def api_files_delete():
 def api_files_stream(filename):
     """流式传输文件（用于音频播放和下载）
 
-    支持三种查找方式（按优先级）：
-    1. 用户目录 downloads/{user}/filename
-    2. CAS 共享存储 downloads/_store/{hash[:2]}/{hash}.ext
-    3. 直接文件名匹配（向后兼容）
+    支持多种查找方式（按优先级）：
+    1. 直接路径：文件存在 → 直接流式传输
+    2. CAS 存储：按 basename 在 user_song_files 中查找 content_hash
+    3. CAS 存储：按 title+artist 反查 music_tracks.file_path → CAS hash
     """
     try:
         downloads_dir = _get_user_downloads_path()
-        file_path = (downloads_dir / filename).resolve()
+        downloads_root = downloads_dir.resolve()
 
-        # ── 先在用户目录查找 ──
-        if file_path.is_relative_to(downloads_dir.resolve()) and file_path.exists():
-            pass
+        # ── Step 1: 尝试直接路径 ──
+        file_path = Path(filename)
+        if file_path.is_absolute():
+            if file_path.exists():
+                try:
+                    if file_path.resolve().is_relative_to(downloads_root):
+                        file_path = file_path.resolve()
+                    else:
+                        return APIResponse.error("文件不在允许的目录中", 403)
+                except (ValueError, OSError):
+                    return APIResponse.error("无法解析文件路径", 400)
         else:
-            # ── CAS 存储查找 ──
+            file_path = (downloads_dir / filename).resolve()
+            if not file_path.exists():
+                file_path = None
+
+        # ── Step 2: 直接路径不存在 → CAS 查找 ──
+        if file_path is None or not file_path.exists():
             try:
                 from services.song_storage import get_song_storage_service
                 storage = get_song_storage_service()
-                # 尝试按原始文件名查找用户映射
                 user = get_current_user() or 'admin'
+
+                # 提取纯文件名（去除 Windows 绝对路径前缀）
+                search_name = Path(filename).name  # e.g. "RAYE - Hotbox.mp3"
+
+                # 2a: 按 original_filename 查找用户映射
                 songs = storage.get_user_songs(user)
                 found_hash = None
                 for s in songs:
-                    if s.get('original_filename') == filename:
+                    orig = s.get('original_filename', '')
+                    if orig == search_name or Path(orig).name == search_name:
                         found_hash = s['content_hash']
                         break
-                # 也尝试用 hash 直接查找
-                if not found_hash:
-                    # 文件名可能就是 hash（CAS 直传）
-                    pure_name = Path(filename).stem
-                    if storage.store.has_content(pure_name):
-                        found_hash = pure_name
 
-                if found_hash:
-                    store_path = storage.store.resolve_path(
-                        found_hash,
-                        storage.store._index.get(found_hash, {}).get('ext', 'mp3'),
-                    )
+                # 2b: 按 music_tracks 反查
+                if not found_hash:
+                    import sqlite3
+                    db_path = _PROJECT_ROOT / 'config' / 'music_vault.db'
+                    try:
+                        conn = sqlite3.connect(str(db_path))
+                        conn.row_factory = sqlite3.Row
+                        row = conn.execute(
+                            "SELECT file_path FROM music_tracks WHERE file_path LIKE ? LIMIT 1",
+                            (f"%{search_name}",),
+                        ).fetchone()
+                        conn.close()
+                        if row:
+                            old_path = row['file_path']
+                            # 尝试用旧路径的 basename 再次查找
+                            for s in songs:
+                                if s.get('original_filename', '') == Path(old_path).name:
+                                    found_hash = s['content_hash']
+                                    break
+                    except Exception:
+                        pass
+
+                if found_hash and storage.store.has_content(found_hash):
+                    ext = storage.store._index.get(found_hash, {}).get('ext', 'mp3')
+                    store_path = storage.store.resolve_path(found_hash, ext)
                     if store_path.exists():
                         file_path = store_path
-                    else:
-                        return APIResponse.error("文件不存在", 404)
-                else:
-                    return APIResponse.error("文件不存在", 404)
+
             except ImportError:
-                return APIResponse.error("文件不存在", 404)
+                pass
+
+        # ── 最终检查 ──
+        if file_path is None or not file_path.exists():
+            return APIResponse.error("文件不存在", 404)
 
         download = request.args.get('download', '0') == '1'
         mimetype = 'application/octet-stream'
@@ -2955,8 +3001,8 @@ def api_v3_music_recommend():
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 50, type=int)
 
-        if source_type not in ('hot_list', 'custom_playlist', 'local_library'):
-            return APIResponse.error("source_type 仅支持 hot_list / custom_playlist / local_library", 400)
+        if source_type not in ('hot_list', 'custom_playlist', 'local_library', 'liked'):
+            return APIResponse.error("source_type 仅支持 hot_list / custom_playlist / local_library / liked", 400)
         if source_type == 'custom_playlist' and not playlist_id:
             return APIResponse.error("custom_playlist 必须提供 playlist_id", 400)
         if sort_order not in ('asc', 'desc'):
@@ -2988,7 +3034,48 @@ def api_v3_music_recommend():
                 'tracks': [t.model_dump() for t in paged],
             }, "ok")
 
-        # ══════════ 分支：网易云热榜 / 自定义歌单 ══════════
+        # ══════════ 分支：我喜欢的音乐 ══════════
+        if source_type == 'liked':
+            cookies = _pb_load_cookies()
+            if not cookies:
+                return APIResponse.error("需要配置网易云 Cookie", 400)
+            try:
+                from music_api import user_account, user_playlist, playlist_detail
+                account = user_account(cookies)
+                uid = account.get('account', {}).get('id', 0)
+                if not uid:
+                    return APIResponse.error("未登录网易云账号", 400)
+                playlists = user_playlist(uid, cookies, limit=50)
+                liked_pid = None
+                for p in playlists.get('playlist', []):
+                    if p.get('specialType') == 5:
+                        liked_pid = p['id']
+                        break
+                if liked_pid:
+                    info = playlist_detail(liked_pid, cookies)
+                    raw_tracks = info.get('tracks', [])
+                else:
+                    raw_tracks = []
+            except Exception as e:
+                api_service.logger.warning(f"获取喜欢列表失败: {e}")
+                raw_tracks = []
+
+            tracks = _build_recommend_tracks(
+                raw_tracks, source_type, '我喜欢的音乐',
+                local_tracks=None,
+            )
+            tracks = _sort_tracks_by_preference(tracks, sort_order)
+            total = len(tracks)
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            paged = tracks[(page - 1) * page_size : page * page_size]
+            return APIResponse.success({
+                'total': total, 'page': page, 'page_size': page_size,
+                'total_pages': total_pages,
+                'source_type': source_type,
+                'source_label': '我喜欢的音乐',
+                'generated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                'tracks': [t.model_dump() for t in paged],
+            }, "ok")
         cookies = _pb_load_cookies()
         raw_tracks = []
         playlist_name = ''

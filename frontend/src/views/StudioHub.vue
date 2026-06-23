@@ -95,7 +95,7 @@
                 variant="text"
                 :color="sortOrder === 'desc' ? 'primary' : undefined"
                 :title="sortOrder === 'desc' ? '偏好分从高到低' : '偏好分从低到高'"
-                @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'; fetchRecommend()"
+                @click="sortOrder = sortOrder === 'desc' ? 'asc' : 'desc'; page = 1; fetchRecommend()"
               >
                 <v-icon size="16">{{ sortOrder === 'desc' ? 'mdi-sort-descending' : 'mdi-sort-ascending' }}</v-icon>
               </v-btn>
@@ -475,7 +475,7 @@ const playlist = ref([])
 const playlistIndex = ref(-1)
 const recommendTracks = ref([])
 const recommendLoading = ref(false)
-const sourceType = ref('hot_list')
+const sourceType = ref('liked')
 const customPlaylistId = ref('')
 const sortOrder = ref('desc')
 const page = ref(1)
@@ -483,6 +483,10 @@ const pageSize = ref(20)
 const totalPages = ref(1)
 const totalTracks = ref(0)
 const hasAudioSource = ref(false)
+
+// ── 分页数据缓存：key = `${sourceType}|${sortOrder}|${playlistId}` ──
+//    每个 key 下存多页数据：Map<pageNumber, { tracks, total, total_pages }>
+const recommendCache = reactive(new Map())
 
 // ── 歌词状态 ──
 const lyricLines = ref([])          // [{ time: 秒, text: '' }]
@@ -507,9 +511,10 @@ const sourceOptions = [
 ]
 
 const sourceTabs = [
+  { icon: '❤️', label: '喜欢', value: 'liked' },
   { icon: '🔥', label: '热榜', value: 'hot_list' },
-  { icon: '📋', label: '歌单', value: 'custom_playlist' },
   { icon: '💿', label: '本地', value: 'local_library' },
+  { icon: '📋', label: '歌单', value: 'custom_playlist' },
 ]
 
 const currentTrack = reactive({
@@ -588,7 +593,9 @@ async function playTrack(track) {
   // 尝试加载音频源：优先本地文件流，否则用网易云流媒体代理
   const token = localStorage.getItem('token') || ''
   if (track.file_path) {
-    audioRef.value.src = `/api/files/stream/${encodeURIComponent(track.file_path)}?token=${encodeURIComponent(token)}`
+    // Windows 路径转 URL 友好格式：反斜杠 → 正斜杠
+    const safePath = track.file_path.replace(/\\/g, '/')
+    audioRef.value.src = `/api/files/stream/${encodeURI(safePath)}?token=${encodeURIComponent(token)}`
     hasAudioSource.value = true
   } else {
     audioRef.value.src = `/api/v3/music/stream/${encodeURIComponent(track.track_id)}?token=${encodeURIComponent(token)}`
@@ -716,7 +723,34 @@ function updateActiveLyric() {
   }
 }
 
+function _cacheKey() {
+  const pid = sourceType.value === 'custom_playlist' ? customPlaylistId.value.trim() : ''
+  return `${sourceType.value}|${sortOrder.value}|${pid}`
+}
+
+function _restoreFromCache(key) {
+  const pages = recommendCache.get(key)
+  if (!pages) return false
+  const cached = pages.get(page.value)
+  if (!cached) return false
+  recommendTracks.value = cached.tracks
+  playlist.value = cached.tracks
+  playlistIndex.value = -1
+  totalTracks.value = cached.total
+  totalPages.value = cached.total_pages
+  return true
+}
+
 async function fetchRecommend() {
+  if (sourceType.value === 'custom_playlist' && !customPlaylistId.value.trim()) {
+    window.__snackbar?.('请输入歌单 ID', 'warning')
+    return
+  }
+
+  const key = _cacheKey()
+  // 命中缓存则直接恢复，不请求网易云
+  if (_restoreFromCache(key)) return
+
   recommendLoading.value = true
   try {
     const params = {
@@ -726,10 +760,6 @@ async function fetchRecommend() {
       page_size: pageSize.value,
     }
     if (sourceType.value === 'custom_playlist') {
-      if (!customPlaylistId.value.trim()) {
-        window.__snackbar?.('请输入歌单 ID', 'warning')
-        return
-      }
       params.playlist_id = customPlaylistId.value.trim()
     }
     const res = await api.get('/api/v3/music/recommend', { params })
@@ -741,6 +771,15 @@ async function fetchRecommend() {
       totalTracks.value = body.total || body.tracks.length
       totalPages.value = body.total_pages || 1
       page.value = body.page || 1
+
+      // 写入缓存
+      if (!recommendCache.has(key)) recommendCache.set(key, new Map())
+      recommendCache.get(key).set(page.value, {
+        tracks: body.tracks,
+        total: body.total || body.tracks.length,
+        total_pages: body.total_pages || 1,
+      })
+
       window.__snackbar?.(`第 ${page.value}/${totalPages.value} 页，共 ${totalTracks.value} 首`, 'success')
     }
   } catch (e) {
@@ -1017,13 +1056,19 @@ function switchSource(val) {
   totalTracks.value = 0
   recommendTracks.value = []
   playlist.value = []
-  fetchRecommend()
+  // 优先从缓存恢复当前 source 的第 1 页
+  if (!_restoreFromCache(_cacheKey())) {
+    fetchRecommend()
+  }
 }
 
 function goToPage(p) {
   if (p < 1 || p > totalPages.value) return
   page.value = p
-  fetchRecommend()
+  // 优先从缓存恢复，无缓存才拉取
+  if (!_restoreFromCache(_cacheKey())) {
+    fetchRecommend()
+  }
 }
 
 onMounted(() => {
