@@ -60,10 +60,35 @@ try:
         get_user_config_path, get_user_downloads_dir, get_user_config_dir,
         register_user
     )
+    from recommendation_engine import (
+        get_recommendation_engine,
+        FEATURE_KEYS, SLOT_HOUR_RANGES,
+    )
+    from playback_api import (
+        PlayLogRequest, PlaybackLog, SessionLocal,
+        _load_netease_cookies as _pb_load_cookies,
+        _build_recommend_tracks, _get_local_features,
+    )
+    from music_api import playlist_detail as netease_playlist_detail, APIException as NeteaseAPIError
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块存在且可用")
     sys.exit(1)
+
+
+# ────────────────────────── 推荐引擎实例（v3 复用） ──────────────────────────
+
+_recommendation_engine = None
+
+
+def _get_recommendation_engine():
+    global _recommendation_engine
+    if _recommendation_engine is None:
+        _recommendation_engine = get_recommendation_engine()
+    return _recommendation_engine
+
+
+_NETEASE_HOT_CHART_ID = 3778678
 
 
 @dataclass
@@ -818,6 +843,51 @@ def api_tag_tracks(tag_name):
 
 # ==================== SPA 前端路由 ====================
 
+@app.route('/api/v3/music/stream/<track_id>', methods=['GET'])
+def api_v3_music_stream(track_id):
+    """
+    流媒体代理：获取网易云歌曲直链并代理流式传输到前端。
+    避免下载整个文件，直接播放。
+
+    音频 URL 有效期较短（通常 5-10 分钟），过期后需重新请求。
+    """
+    try:
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return APIResponse.error("无有效 Cookie", 401)
+
+        # 获取歌曲 URL（默认极高音质）
+        song_id = int(track_id)
+        url_info = url_v1(song_id, 'exhigh', cookies)
+        if not url_info or not url_info.get('data') or not url_info['data'][0].get('url'):
+            # 降级尝试标准音质
+            url_info = url_v1(song_id, 'standard', cookies)
+            if not url_info or not url_info.get('data') or not url_info['data'][0].get('url'):
+                return APIResponse.error("无法获取歌曲播放链接", 404)
+
+        song_url = url_info['data'][0]['url']
+        song_type = url_info['data'][0].get('type', 'mp3')
+
+        # 流式代理
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://music.163.com/',
+        }
+        r = requests.get(song_url, headers=headers, stream=True, timeout=30)
+        r.raise_for_status()
+
+        def generate():
+            for chunk in r.iter_content(chunk_size=65536):
+                yield chunk
+
+        content_type = f'audio/{song_type}' if song_type else 'audio/mpeg'
+        return Response(stream_with_context(generate()), content_type=content_type)
+
+    except Exception as e:
+        api_service.logger.error(f"流媒体代理异常: {e}")
+        return APIResponse.error(str(e), 500)
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
@@ -860,6 +930,15 @@ def before_request():
 
     # 白名单路径放行
     if request.path in AUTH_WHITELIST:
+        return
+
+    # v3 API：不强制拦截，但尝试从 token 提取用户（供 cookie 加载使用）
+    if request.path.startswith('/api/v3/'):
+        token = _extract_token_from_request()
+        if token:
+            username = verify_token(token)
+            if username:
+                set_current_user(username)
         return
 
     # 验证 Token
@@ -2356,6 +2435,164 @@ def save_settings():
         return APIResponse.error(f"保存配置失败: {str(e)}", 500)
 
 
+# ==================== 推荐排序 API v3 (动态时间权重) ====================
+
+# 全局推荐引擎实例（懒加载）
+_rec_engine = None
+
+def _get_rec_engine():
+    global _rec_engine
+    if _rec_engine is None:
+        _rec_engine = get_recommendation_engine()
+    return _rec_engine
+
+
+@app.route('/api/v3/config/weights', methods=['GET'])
+def v3_get_weights():
+    """读取完整权重配置"""
+    try:
+        engine = _get_rec_engine()
+        config_data = engine.get_config()
+        return APIResponse.success(config_data, "权重配置获取成功")
+    except Exception as e:
+        api_service.logger.error(f"获取权重配置异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"获取失败: {str(e)}", 500)
+
+
+@app.route('/api/v3/config/weights', methods=['POST'])
+def v3_save_weights():
+    """覆盖写入权重配置"""
+    try:
+        data = api_service._safe_get_request_data()
+        engine = _get_rec_engine()
+        ok, msg = engine.save_config(data)
+        if not ok:
+            return APIResponse.error(msg, 400)
+        return APIResponse.success(None, msg)
+    except Exception as e:
+        api_service.logger.error(f"保存权重配置异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"保存失败: {str(e)}", 500)
+
+
+@app.route('/api/v3/recommend/rank', methods=['POST'])
+def v3_recommend_rank():
+    """
+    接收歌曲列表，按当前时段权重排序。
+
+    Request JSON:
+        {
+            "tracks": [
+                {
+                    "track_id": "123",
+                    "title": "歌名",
+                    "artist": "歌手",
+                    "features": { "tempo": 70, "energy": 55, ... }
+                }
+            ],
+            "hour": 14,    // 可选，指定小时
+            "slot": "daytime"  // 可选，指定时段
+        }
+    """
+    try:
+        data = api_service._safe_get_request_data()
+        tracks_input = data.get('tracks', [])
+
+        if not tracks_input or not isinstance(tracks_input, list):
+            return APIResponse.error("请提供 'tracks' 列表", 400)
+
+        engine = _get_rec_engine()
+        hour = data.get('hour')
+        slot = data.get('slot')
+
+        if hour is not None:
+            hour = int(hour)
+        if slot and slot not in SLOT_HOUR_RANGES:
+            return APIResponse.error(f"无效时段 '{slot}'，有效值: {sorted(SLOT_HOUR_RANGES.keys())}", 400)
+
+        ranked = engine.rank_tracks_to_dict(tracks_input, hour=hour, slot=slot)
+
+        return APIResponse.success({
+            'ranked': ranked,
+            'total': len(ranked),
+            'applied_slot': ranked[0]['applied_slot'] if ranked else None,
+            'slot_label': ranked[0]['slot_label'] if ranked else None,
+        }, "推荐排序完成")
+    except ValueError as e:
+        return APIResponse.error(str(e), 400)
+    except Exception as e:
+        api_service.logger.error(f"推荐排序异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"排序失败: {str(e)}", 500)
+
+
+@app.route('/api/v3/recommend/rank-radar', methods=['POST'])
+def v3_recommend_rank_radar():
+    """
+    接收雷达数组格式，自动转为引擎消费格式后排序。
+
+    Request JSON:
+        {
+            "tracks": [
+                { "radar": [70,55,80,60,45,30,20,40,50,65], "track_id": "123", "title": "...", "artist": "..." }
+            ],
+            "hour": 14,
+            "slot": "daytime"
+        }
+    """
+    try:
+        data = api_service._safe_get_request_data()
+        tracks_input = data.get('tracks', [])
+
+        if not tracks_input or not isinstance(tracks_input, list):
+            return APIResponse.error("请提供 'tracks' 列表", 400)
+
+        engine = _get_rec_engine()
+
+        # 将雷达数组转为引擎消费格式
+        converted = []
+        for t in tracks_input:
+            radar = t.get('radar', [])
+            if len(radar) != len(FEATURE_KEYS):
+                return APIResponse.error(
+                    f"歌曲 '{t.get('track_id', '?')}' 雷达数组长度应为 {len(FEATURE_KEYS)}，实际为 {len(radar)}", 400
+                )
+            converted.append(engine.build_track_from_radar(radar, {
+                'track_id': t.get('track_id', ''),
+                'title': t.get('title', ''),
+                'artist': t.get('artist', ''),
+            }))
+
+        hour = data.get('hour')
+        slot = data.get('slot')
+        if hour is not None:
+            hour = int(hour)
+
+        ranked = engine.rank_tracks_to_dict(converted, hour=hour, slot=slot)
+
+        return APIResponse.success({
+            'ranked': ranked,
+            'total': len(ranked),
+            'applied_slot': ranked[0]['applied_slot'] if ranked else None,
+            'slot_label': ranked[0]['slot_label'] if ranked else None,
+        }, "雷达排序完成")
+    except ValueError as e:
+        return APIResponse.error(str(e), 400)
+    except Exception as e:
+        api_service.logger.error(f"雷达排序异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"排序失败: {str(e)}", 500)
+
+
+@app.route('/api/v3/recommend/slot', methods=['GET'])
+def v3_get_slot():
+    """查询当前时段及对应权重"""
+    try:
+        engine = _get_rec_engine()
+        info = engine.get_current_slot_info()
+        return APIResponse.success(info, "时段查询成功")
+    except Exception as e:
+        api_service.logger.error(f"时段查询异常: {e}\n{traceback.format_exc()}")
+        return APIResponse.error(f"查询失败: {str(e)}", 500)
+
+
 def start_api_server():
     """启动API服务器"""
     try:
@@ -2541,6 +2778,170 @@ def api_files_save():
         return APIResponse.success({'filename': filename}, "文件保存成功")
     except Exception as e:
         return APIResponse.error(f"保存文件失败: {str(e)}", 500)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  v3 API — 权重配置 / 推荐排序 / 播放历史 / 推荐流
+#  全部运行在 Flask :5000，无需额外 FastAPI 服务
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/v3/config/weights', methods=['GET', 'POST'])
+def api_v3_weights():
+    """读取/保存权重配置"""
+    engine = _get_recommendation_engine()
+    if request.method == 'GET':
+        try:
+            config = engine.get_config()
+            return APIResponse.success(config, "ok")
+        except Exception as e:
+            return APIResponse.error(str(e), 500)
+    else:
+        try:
+            data = api_service._safe_get_request_data()
+            ok, msg = engine.save_config(data)
+            if not ok:
+                return APIResponse.error(msg, 400)
+            return APIResponse.success(None, msg)
+        except Exception as e:
+            return APIResponse.error(str(e), 500)
+
+
+@app.route('/api/v3/recommend/slot', methods=['GET'])
+def api_v3_slot():
+    """查询当前时段及权重"""
+    try:
+        engine = _get_recommendation_engine()
+        info = engine.get_current_slot_info()
+        return APIResponse.success(info, "ok")
+    except Exception as e:
+        return APIResponse.error(str(e), 500)
+
+
+@app.route('/api/v3/music/log', methods=['POST'])
+def api_v3_music_log():
+    """上报播放行为"""
+    import sqlite3
+    from datetime import datetime, timezone
+    try:
+        data = api_service._safe_get_request_data()
+        track_id = data.get('track_id', '')
+        title = data.get('title', '')
+        artist = data.get('artist', '')
+        play_duration = float(data.get('play_duration', 0))
+        total_duration = float(data.get('total_duration', 0))
+        source_type = data.get('source_type', '')
+
+        is_skipped = False
+        skip_ratio = 0.0
+        if total_duration > 0:
+            skip_ratio = play_duration / total_duration
+            is_skipped = skip_ratio < 0.2
+
+        db_path = str(_PROJECT_ROOT / 'config' / 'music_vault.db')
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("""
+                INSERT INTO playback_logs (user_id, track_id, title, artist,
+                    play_duration, total_duration, is_skipped, source_type, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                get_current_user() or 'admin', track_id, title, artist,
+                play_duration, total_duration, int(is_skipped), source_type,
+                datetime.now(timezone.utc).isoformat(),
+            ))
+            conn.commit()
+            return APIResponse.success({
+                'is_skipped': is_skipped,
+                'skip_ratio': round(skip_ratio, 3),
+            }, "已记录")
+        finally:
+            conn.close()
+    except Exception as e:
+        return APIResponse.error(str(e), 500)
+
+
+@app.route('/api/v3/music/history', methods=['GET'])
+def api_v3_music_history():
+    """分页返回播放历史"""
+    import sqlite3
+    try:
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 20, type=int)
+        user_id = get_current_user() or 'admin'
+        db_path = str(_PROJECT_ROOT / 'config' / 'music_vault.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM playback_logs WHERE user_id = ?", (user_id,)
+            ).fetchone()[0]
+            offset = (page - 1) * page_size
+            rows = conn.execute(
+                "SELECT * FROM playback_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (user_id, page_size, offset),
+            ).fetchall()
+            items = []
+            for r in rows:
+                items.append({
+                    'id': r['id'], 'track_id': r['track_id'],
+                    'title': r['title'], 'artist': r['artist'],
+                    'play_duration': r['play_duration'], 'total_duration': r['total_duration'],
+                    'is_skipped': bool(r['is_skipped']), 'timestamp': r['timestamp'],
+                })
+            return APIResponse.success({
+                'total': total, 'page': page, 'page_size': page_size, 'items': items,
+            }, "ok")
+        finally:
+            conn.close()
+    except Exception as e:
+        return APIResponse.error(str(e), 500)
+
+
+@app.route('/api/v3/music/recommend', methods=['GET'])
+def api_v3_music_recommend():
+    """
+    推荐接口：hot_list（热榜 3778678） / custom_playlist（自定义ID）
+    1. 调用网易云 API 获取歌单歌曲
+    2. 在本地 music_tracks 模糊匹配特征
+    3. 返回带特征的歌曲列表
+    """
+    try:
+        source_type = request.args.get('source_type', 'hot_list')
+        playlist_id = request.args.get('playlist_id', None)
+
+        if source_type not in ('hot_list', 'custom_playlist'):
+            return APIResponse.error("source_type 仅支持 hot_list 或 custom_playlist", 400)
+        if source_type == 'custom_playlist' and not playlist_id:
+            return APIResponse.error("custom_playlist 必须提供 playlist_id", 400)
+
+        # 获取 Cookie
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return APIResponse.success({
+                'total': 0, 'source_type': source_type,
+                'source_label': '需要配置网易云 Cookie',
+                'tracks': [],
+            }, "无Cookie")
+
+        # 调用网易云 API
+        pid = int(playlist_id) if playlist_id else _NETEASE_HOT_CHART_ID
+        playlist_info = netease_playlist_detail(pid, cookies)
+        raw_tracks = playlist_info.get('tracks', [])
+
+        tracks = _build_recommend_tracks(
+            raw_tracks, source_type,
+            playlist_info.get('name', '网易云热榜' if source_type == 'hot_list' else ''),
+        )
+
+        return APIResponse.success({
+            'total': len(tracks), 'source_type': source_type,
+            'source_label': playlist_info.get('name', ''),
+            'generated_at': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+            'tracks': [t.model_dump() for t in tracks],
+        }, "ok")
+    except Exception as e:
+        api_service.logger.error(f"推荐接口异常: {e}")
+        return APIResponse.error(str(e), 500)
 
 
 if __name__ == '__main__':

@@ -74,6 +74,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/studio',
+    name: 'StudioHub',
+    component: () => import('@/views/StudioHub.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/mixer',
     name: 'WeightSettings',
     component: () => import('@/views/WeightSettings.vue'),
