@@ -142,6 +142,21 @@ class LikeRequest(BaseModel):
     like: bool = Field(..., description="True=红心喜欢, False=取消红心")
 
 
+class LikeResponse(BaseModel):
+    """红心操作结果"""
+
+    success: bool
+    track_id: int
+    liked: bool
+
+
+class LikedIdsResponse(BaseModel):
+    """已喜欢歌曲 ID 列表"""
+
+    ids: List[int]
+    total: int
+
+
 # ────────────────────────── SQLAlchemy 数据模型 ──────────────────────────
 
 
@@ -561,31 +576,86 @@ async def get_account() -> JSONResponse:
 async def set_like(req: LikeRequest) -> JSONResponse:
     """红心或取消红心歌曲（与网易云同步）
 
-    调用网易云 weapi/radio/like 接口，并在本地数据库同步更新 is_favorite 状态。
+    通过 playlist/manipulate/tracks 操作「我喜欢的音乐」歌单实现：
+    - like=true  → op='add'  添加歌曲
+    - like=false → op='del'  删除歌曲
+
+    自动获取用户「我喜欢的音乐」歌单ID，无需手动指定。
+    同步更新本地数据库 is_favorite 状态。
 
     返回：
-        200: {"code": 200, "message": "...", "data": {"track_id": ..., "is_favorite": ...}}
-        400: 参数错误
+        200: {"code": 200, "data": {"track_id": ..., "is_favorite": ..., "playlist_id": ...}}
+        400: 参数错误/未登录
         502: 网易云 API 调用失败
     """
     cookies = _load_netease_cookies()
     if not cookies:
-        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie，请先在设置中登录")
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie")
 
     try:
         from music_api import NeteaseAPI
         api = NeteaseAPI()
-        result = api.set_like(req.track_id, req.like, cookies)
-        # 同步更新本地数据库
+        uid = _extract_netease_uid(cookies)
+        if uid == 0:
+            raise HTTPException(status_code=400, detail="无法获取用户 ID")
+        liked_pid = api.get_liked_playlist_id(uid, cookies)
+        op = 'add' if req.like else 'del'
+        result = api.manipulate_playlist_tracks(liked_pid, [req.track_id], op, cookies)
         _update_local_favorite(str(req.track_id), req.like)
+        _update_liked_cache(req.track_id, req.like)
         return JSONResponse(content={
             "code": 200,
-            "message": "红心成功" if req.like else "取消红心成功",
-            "data": {"track_id": req.track_id, "is_favorite": req.like},
+            "data": {
+                "track_id": req.track_id,
+                "is_favorite": req.like,
+                "playlist_id": liked_pid,
+                "op": op,
+            },
         })
     except Exception as e:
         logger.error(f"喜欢操作失败: track_id={req.track_id}, like={req.like}, error={e}")
-        raise HTTPException(status_code=502, detail=f"网易云 API 调用失败: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+class PlaylistTracksRequest(BaseModel):
+    """歌单添加/删除歌曲请求"""
+
+    pid: int = Field(..., gt=0, description="歌单ID")
+    track_ids: List[int] = Field(..., min_length=1, description="歌曲ID列表")
+    op: str = Field(..., pattern="^(add|del)$", description="操作: add 添加 / del 删除")
+
+
+@router.post("/playlist/tracks", response_model=Dict[str, Any])
+async def manipulate_playlist(req: PlaylistTracksRequest) -> JSONResponse:
+    """向任意歌单添加/删除歌曲（通用接口）
+
+    op='add' 添加歌曲，op='del' 删除歌曲。
+    如果只想红心/取消红心，建议直接用 POST /api/v3/music/like 更简单。
+
+    返回：
+        200: {"code": 200, "data": {"pid": ..., "op": ..., "count": ...}}
+        400: 未登录
+        502: 网易云 API 调用失败
+    """
+    cookies = _load_netease_cookies()
+    if not cookies:
+        raise HTTPException(status_code=400, detail="未配置有效的网易云 Cookie")
+
+    try:
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        result = api.manipulate_playlist_tracks(req.pid, req.track_ids, req.op, cookies)
+        return JSONResponse(content={
+            "code": 200,
+            "data": {
+                "pid": req.pid,
+                "op": req.op,
+                "count": len(req.track_ids),
+            },
+        })
+    except Exception as e:
+        logger.error(f"歌单操作失败: pid={req.pid}, op={req.op}, error={e}")
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @router.get("/playlists", response_model=Dict[str, Any])
@@ -892,6 +962,74 @@ def _load_netease_cookies() -> Dict[str, str]:
     except Exception as e:
         logger.warning(f"加载 Cookie 失败: {e}")
         return {}
+
+
+# ── 喜欢ID缓存（避免每次重复拉取全量歌单） ──
+
+_liked_ids_cache: Optional[List[int]] = None
+_liked_ids_cookie_hash: Optional[int] = None
+
+
+def _get_liked_ids() -> List[int]:
+    """获取已喜欢歌曲 ID 列表，带内存缓存（按 cookie 哈希校验是否需要刷新）"""
+    global _liked_ids_cache, _liked_ids_cookie_hash
+    cookies = _load_netease_cookies()
+    if not cookies:
+        return []
+    cookie_hash = hash(frozenset(str(v)[:20] for v in cookies.values()))
+    if _liked_ids_cache is not None and _liked_ids_cookie_hash == cookie_hash:
+        return _liked_ids_cache
+
+    try:
+        from music_api import user_account, user_playlist
+        account = user_account(cookies)
+        uid = account.get("account", {}).get("id", 0)
+        if not uid:
+            return _liked_ids_cache or []
+        playlists = user_playlist(uid, cookies, limit=50)
+        liked_pid = None
+        for p in playlists.get("playlist", []):
+            if p.get("specialType") == 5:
+                liked_pid = p["id"]
+                break
+        if not liked_pid:
+            logger.info("_get_liked_ids: 未找到 specialType=5 歌单")
+            return _liked_ids_cache or []
+
+        # 只拉 trackIds，不拉全量歌曲详情
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://music.163.com/",
+        }
+        import requests
+        url = f"https://music.163.com/api/v6/playlist/detail?id={liked_pid}"
+        resp = requests.get(url, headers=headers, cookies=cookies, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+        playlist = body.get("playlist", {})
+        track_ids = [t["id"] for t in playlist.get("trackIds", [])]
+        _liked_ids_cache = track_ids
+        _liked_ids_cookie_hash = cookie_hash
+        logger.info(f"_get_liked_ids: 刷新缓存，共 {len(track_ids)} 首")
+        return track_ids
+    except Exception as e:
+        logger.warning(f"_get_liked_ids 失败: {e}")
+        return _liked_ids_cache or []
+
+
+def _update_liked_cache(track_id: int, add: bool):
+    """增删缓存中的单个 track ID"""
+    global _liked_ids_cache
+    if _liked_ids_cache is None:
+        return
+    if add:
+        if track_id not in _liked_ids_cache:
+            _liked_ids_cache.append(track_id)
+    else:
+        try:
+            _liked_ids_cache.remove(track_id)
+        except ValueError:
+            pass
 
 
 # ── 特征查询 ──
@@ -1365,3 +1503,15 @@ def _ensure_user_behavior(file_path: str, username: str = "admin") -> None:
         conn.close()
     except Exception as e:
         logger.warning(f"写入 user_track_behaviors 失败: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  ❤️ 喜欢/取消喜欢 — 缓存查询
+# ══════════════════════════════════════════════════════════════════════
+
+
+@router.get("/liked-ids", response_model=LikedIdsResponse)
+def get_liked_ids():
+    """获取当前用户所有已喜欢歌曲 ID（带内存缓存）"""
+    ids = _get_liked_ids()
+    return LikedIdsResponse(ids=ids, total=len(ids))

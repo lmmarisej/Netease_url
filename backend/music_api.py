@@ -103,6 +103,7 @@ class APIConstants:
     LIKE_LIST_API = 'https://music.163.com/weapi/song/like/get'
     USER_ACCOUNT_API = 'https://music.163.com/api/nuser/account/get'
     USER_PLAYLIST_API = 'https://music.163.com/api/user/playlist'
+    PLAYLIST_MANIPULATE_API = 'https://music.163.com/api/playlist/manipulate/tracks'
 
     # 默认配置
     DEFAULT_CONFIG = {
@@ -660,7 +661,7 @@ class NeteaseAPI:
     def set_like(self, track_id: int, like: bool, cookies: Dict[str, str]) -> Dict[str, Any]:
         """红心或取消红心歌曲（与网易云官方客户端同步）
 
-        API: POST https://music.163.com/weapi/radio/like
+        API: POST https://music.163.com/eapi/radio/like (eapi 加密)
 
         Args:
             track_id: 网易云歌曲ID
@@ -678,13 +679,18 @@ class NeteaseAPI:
         }
         cookies_copy = dict(cookies)
         cookies_copy.setdefault('os', 'pc')
-        cookies_copy.setdefault('appver', '2.9.7')
-        response_text = self.http_client.post_weapi_request(
-            APIConstants.RADIO_LIKE_API, payload, cookies_copy
+        cookies_copy.setdefault('appver', '2.10.15')
+        cookies_copy.setdefault('channel', 'netease')
+
+        eapi_params = self.crypto_utils.encrypt_params(
+            'https://music.163.com/eapi/radio/like', payload
+        )
+        response_text = self.http_client.post_request(
+            'https://music.163.com/eapi/radio/like', eapi_params, cookies_copy
         )
         result = json.loads(response_text)
         if result.get('code') != 200:
-            raise APIException(f"喜欢操作失败: {result.get('message', '未知错误')}")
+            raise APIException(f"喜欢操作失败: {result.get('message', '未知错误')} (code={result.get('code')})")
         return result
 
     def get_likelist(self, uid: int, cookies: Dict[str, str]) -> Dict[str, Any]:
@@ -760,6 +766,50 @@ class NeteaseAPI:
             return result
         except requests.RequestException as e:
             raise APIException(f"获取用户歌单请求失败: {e}")
+
+    def manipulate_playlist_tracks(
+        self, pid: int, track_ids: List[int], op: str, cookies: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """向歌单添加/删除歌曲（通用歌单操作）
+
+        API: POST https://music.163.com/api/playlist/manipulate/tracks
+
+        用于操作「我喜欢的音乐」等任意歌单：op='add' 添加，op='del' 删除。
+
+        Args:
+            pid: 歌单ID（如「我喜欢的音乐」的ID）
+            track_ids: 歌曲ID列表
+            op: 'add' 添加歌曲 / 'del' 删除歌曲
+            cookies: 用户cookies（需 os='pc'）
+
+        Returns:
+            API 响应字典
+        """
+        cookies_copy = dict(cookies)
+        cookies_copy.setdefault('os', 'pc')
+        payload = {
+            'op': op,
+            'pid': pid,
+            'trackIds': json.dumps([str(tid) for tid in track_ids]),
+            'imme': 'true',
+        }
+        response_text = self.http_client.post_weapi_request(
+            APIConstants.PLAYLIST_MANIPULATE_API, payload, cookies_copy
+        )
+        result = json.loads(response_text)
+        if result.get('code') != 200:
+            raise APIException(
+                f"歌单操作失败 (op={op}): {result.get('message', '未知错误')}"
+            )
+        return result
+
+    def get_liked_playlist_id(self, uid: int, cookies: Dict[str, str]) -> int:
+        """获取「我喜欢的音乐」歌单ID（specialType=5）"""
+        data = self.get_user_playlist(uid, cookies)
+        for pl in data.get('playlist', []):
+            if pl.get('specialType') == 5:
+                return pl['id']
+        raise APIException("未找到「我喜欢的音乐」歌单，请确认已登录")
 
 
 class QRLoginManager:
@@ -971,6 +1021,18 @@ def user_playlist(uid: int, cookies: Dict[str, str], limit: int = 30, offset: in
     """获取用户歌单（向后兼容）"""
     api = NeteaseAPI()
     return api.get_user_playlist(uid, cookies, limit, offset)
+
+
+def manipulate_playlist_tracks(pid: int, track_ids: List[int], op: str, cookies: Dict[str, str]) -> Dict[str, Any]:
+    """歌单添加/删除歌曲（向后兼容）"""
+    api = NeteaseAPI()
+    return api.manipulate_playlist_tracks(pid, track_ids, op, cookies)
+
+
+def get_liked_playlist_id(uid: int, cookies: Dict[str, str]) -> int:
+    """获取「我喜欢的音乐」歌单ID（向后兼容）"""
+    api = NeteaseAPI()
+    return api.get_liked_playlist_id(uid, cookies)
 
 
 if __name__ == "__main__":

@@ -183,6 +183,18 @@
                   :color="t.bpm < 0 ? 'warning' : 'success'"
                   class="track-chip"
                 >{{ t.bpm < 0 ? '待扫描' : '已分析' }}</v-chip>
+                <!-- 爱心按钮 -->
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  :color="likedIds.has(Number(t.track_id)) ? 'red' : undefined"
+                  @click.stop="toggleLike(t)"
+                >
+                  <v-icon size="15">
+                    {{ likedIds.has(Number(t.track_id)) ? 'mdi-heart' : 'mdi-heart-outline' }}
+                  </v-icon>
+                </v-btn>
               </div>
             </TransitionGroup>
             <!-- 分页控件 -->
@@ -483,6 +495,9 @@ const pageSize = ref(20)
 const totalPages = ref(1)
 const totalTracks = ref(0)
 const hasAudioSource = ref(false)
+
+// ── 喜欢状态 ──
+const likedIds = ref(new Set())
 
 // ── 分页数据缓存：key = `${sourceType}|${sortOrder}|${playlistId}` ──
 //    每个 key 下存多页数据：Map<pageNumber, { tracks, total, total_pages }>
@@ -789,6 +804,41 @@ async function fetchRecommend() {
   }
 }
 
+async function initLikedIds() {
+  try {
+    const res = await api.get('/api/v3/music/liked-ids')
+    const ids = res.data?.ids || res.data?.data?.ids
+    if (ids?.length) {
+      likedIds.value = new Set(ids)
+    }
+  } catch {
+    // 静默失败，不影响主流程
+  }
+}
+
+async function toggleLike(track) {
+  const id = Number(track.track_id)
+  if (!id) return
+  const wasLiked = likedIds.value.has(id)
+  // 乐观更新
+  const next = new Set(likedIds.value)
+  if (wasLiked) next.delete(id)
+  else next.add(id)
+  likedIds.value = next
+
+  try {
+    await api.post('/api/v3/music/like', { track_id: id, like: !wasLiked })
+    window.__snackbar?.(wasLiked ? '已取消喜欢' : '已加入 ❤️ 我喜欢的音乐', 'success')
+  } catch (e) {
+    // 回滚
+    const rollback = new Set(likedIds.value)
+    if (wasLiked) rollback.add(id)
+    else rollback.delete(id)
+    likedIds.value = rollback
+    window.__snackbar?.('操作失败: ' + (e.response?.data?.message || e.message), 'error')
+  }
+}
+
 function formatTime(sec) {
   if (!sec || sec <= 0) return '0:00'
   const m = Math.floor(sec / 60)
@@ -1073,6 +1123,7 @@ function goToPage(p) {
 
 onMounted(() => {
   fetchRecommend()
+  initLikedIds()
 })
 
 onBeforeUnmount(() => {

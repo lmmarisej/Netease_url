@@ -92,6 +92,10 @@ def _get_recommendation_engine():
 
 _NETEASE_HOT_CHART_ID = 3778678
 
+# ── 喜欢ID缓存 ──
+_liked_ids_cache = None
+_liked_ids_cookie_hash = None
+
 
 @dataclass
 class APIConfig:
@@ -3121,6 +3125,128 @@ def api_v3_music_recommend():
     except Exception as e:
         api_service.logger.error(f"推荐接口异常: {e}")
         return APIResponse.error(str(e), 500)
+
+
+# ────────────────────────── v3 喜欢/取消喜欢 ──────────────────────────
+
+
+@app.route('/api/v3/music/liked-ids', methods=['GET'])
+def api_v3_music_liked_ids():
+    """获取当前用户所有已喜欢歌曲 ID 列表（带内存缓存）"""
+    global _liked_ids_cache, _liked_ids_cookie_hash
+    try:
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return APIResponse.error("需要配置网易云 Cookie", 400)
+        cookie_hash = hash(frozenset(str(v)[:20] for v in cookies.values()))
+        if _liked_ids_cache is not None and _liked_ids_cookie_hash == cookie_hash:
+            return APIResponse.success({'ids': _liked_ids_cache, 'total': len(_liked_ids_cache)})
+
+        liked_pid = _get_liked_pid()
+        if not liked_pid:
+            return APIResponse.success({'ids': _liked_ids_cache or [], 'total': len(_liked_ids_cache or [])})
+
+        import requests as _r
+        url = f"https://music.163.com/api/v6/playlist/detail?id={liked_pid}"
+        hdrs = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://music.163.com/'}
+        resp = _r.get(url, headers=hdrs, cookies=cookies, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get('code') != 200:
+            return APIResponse.error(body.get('message', '获取歌单失败'), 502)
+        playlist = body.get('playlist', {})
+        ids = [t['id'] for t in playlist.get('trackIds', [])]
+        _liked_ids_cache = ids
+        _liked_ids_cookie_hash = cookie_hash
+        api_service.logger.info(f"liked-ids 缓存刷新: {len(ids)} 首")
+        return APIResponse.success({'ids': ids, 'total': len(ids)})
+    except Exception as e:
+        api_service.logger.error(f"获取 liked-ids 失败: {e}")
+        return APIResponse.error(str(e), 502)
+
+
+_liked_pid_cache = None  # 喜欢歌单 ID 缓存
+
+
+def _get_liked_pid() -> Optional[int]:
+    """获取喜欢歌单 ID（带缓存）"""
+    global _liked_pid_cache
+    if _liked_pid_cache:
+        return _liked_pid_cache
+    cookies = _pb_load_cookies()
+    if not cookies:
+        return None
+    try:
+        from music_api import user_account, user_playlist
+        account = user_account(cookies)
+        uid = account.get('account', {}).get('id', 0)
+        if not uid:
+            return None
+        playlists = user_playlist(uid, cookies, limit=50)
+        for p in playlists.get('playlist', []):
+            if p.get('specialType') == 5:
+                _liked_pid_cache = p['id']
+                return _liked_pid_cache
+    except Exception:
+        pass
+    return None
+
+
+@app.route('/api/v3/music/like', methods=['POST'])
+def api_v3_music_like():
+    """红心/取消红心 — 通过 playlist/manipulate/tracks 操作喜欢歌单"""
+    global _liked_ids_cache
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return APIResponse.error("请求体不能为空", 400)
+        track_id = data.get('track_id')
+        like = data.get('like')
+        if not track_id or not isinstance(track_id, int) or track_id <= 0:
+            return APIResponse.error("track_id 必须为正整数", 400)
+        if not isinstance(like, bool):
+            return APIResponse.error("like 必须为布尔值", 400)
+
+        cookies = _pb_load_cookies()
+        if not cookies:
+            return APIResponse.error("需要配置网易云 Cookie", 400)
+        csrf = cookies.get('__csrf', '')
+        if not csrf:
+            return APIResponse.error("Cookie 中缺少 __csrf", 400)
+
+        liked_pid = _get_liked_pid()
+        if not liked_pid:
+            return APIResponse.error("未找到喜欢歌单 (specialType=5)", 400)
+
+        op = 'add' if like else 'del'
+        url = f'https://music.163.com/api/playlist/manipulate/tracks?csrf_token={csrf}'
+        form = {'op': op, 'pid': str(liked_pid), 'trackIds': f'[{track_id}]'}
+        hdrs = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://music.163.com/',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+        import requests as _r
+        resp = _r.post(url, headers=hdrs, cookies=cookies, data=form, timeout=15)
+        body = resp.json()
+        if body.get('code') == 200:
+            # 更新缓存
+            if _liked_ids_cache is not None:
+                if like and track_id not in _liked_ids_cache:
+                    _liked_ids_cache.append(track_id)
+                elif not like:
+                    try:
+                        _liked_ids_cache.remove(track_id)
+                    except ValueError:
+                        pass
+            api_service.logger.info(f"like 操作成功: track={track_id} op={op}")
+            return APIResponse.success({'track_id': track_id, 'liked': like})
+        else:
+            return APIResponse.error(body.get('message', '操作失败'), 502)
+    except Exception as e:
+        api_service.logger.error(f"like操作失败: {e}")
+        return APIResponse.error(str(e), 502)
 
 
 if __name__ == '__main__':
