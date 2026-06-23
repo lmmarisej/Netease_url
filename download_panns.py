@@ -1,12 +1,16 @@
-"""PANNs CNN14 checkpoint concurrent downloader using Python threads."""
+"""PANNs CNN14 checkpoint + labels concurrent downloader using Python threads."""
 import os, sys, time, threading, requests
 
+# panns_inference 默认路径: ~/panns_data/
+PANNS_DIR = os.path.join(os.path.expanduser("~"), "panns_data")
 URL = "https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
-OUT = os.path.expandvars(r"%USERPROFILE%\panns_data\Cnn14_mAP=0.431.pth")
+LABELS_URL = "http://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/class_labels_indices.csv"
+OUT = os.path.join(PANNS_DIR, "Cnn14_mAP=0.431.pth")
+LABELS_OUT = os.path.join(PANNS_DIR, "class_labels_indices.csv")
 THREADS = 8
 CHUNK = 256 * 1024  # 256KB per read
 
-os.makedirs(os.path.dirname(OUT), exist_ok=True)
+os.makedirs(PANNS_DIR, exist_ok=True)
 
 # Get content-length
 r = requests.head(URL, timeout=60)
@@ -76,3 +80,14 @@ with open(OUT, "wb") as f:
 
 size_mb = os.path.getsize(OUT) / 1024 / 1024
 print(f"\nDone: {size_mb:.0f} MB saved to {OUT}")
+
+# 下载 labels CSV
+if not os.path.exists(LABELS_OUT):
+    print(f"\nDownloading labels CSV...")
+    r = requests.get(LABELS_URL, timeout=60)
+    r.raise_for_status()
+    with open(LABELS_OUT, "wb") as f:
+        f.write(r.content)
+    print(f"Labels saved to {LABELS_OUT}")
+else:
+    print(f"\nLabels already exist: {LABELS_OUT}")

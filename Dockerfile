@@ -16,17 +16,24 @@ RUN pip install --no-cache-dir \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     -r requirements.txt
 
-# 2. 复制后端代码并备份默认配置
+# 2. 预下载 PANNs 模型权重和标签（加速首次启动）
+COPY download_panns.py .
+RUN apt-get update && apt-get install -y --no-install-recommends wget && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 download_panns.py && \
+    rm download_panns.py
+
+# 3. 复制后端代码并备份默认配置
 COPY backend/ ./backend/
 COPY config/ ./config/
 
 RUN cp -r /app/config /app/config_defaults && \
     mkdir -p /app/logs /app/downloads
 
-# 3. 复制前端静态文件
+# 4. 复制前端静态文件
 COPY --from=frontend-builder /frontend/dist/ ./frontend/dist/
 
-# 4. 【修改这里】直接复制独立的启动脚本
+# 5. 复制启动脚本
 COPY entrypoint.sh /entrypoint.sh
 
 # 赋权并加一道防线：万一你以后不小心又把 entrypoint.sh 变成了 CRLF，这行命令会自动修复它
