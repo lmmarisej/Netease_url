@@ -38,3 +38,15 @@ frontend/node_modules/
 
 # 临时文件
 *.log
+
+# 截图 / 一次性测试脚本
+screenshots/
+capture_*.js
+screenshot.mjs
+take_screenshots.py
+download_panns.py
+skills-lock.json
+.codegraph/
+test_songs/
+train_songs/
+img.png
