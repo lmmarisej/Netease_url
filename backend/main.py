@@ -692,7 +692,7 @@ def api_taste_radar(username):
         )
         total = cur.fetchone()[0] or 1  # 兜底避免除零
 
-        # 空间氛围感 — PANNs 'Ambient music'
+        # 空间氛围感 — PANNs 'Ambient music'，无标签时用物理特征估算
         cur = conn.execute("""
             SELECT COUNT(DISTINCT tt.track_id)
             FROM user_track_behaviors b
@@ -701,9 +701,15 @@ def api_taste_radar(username):
               AND tt.tag_name = 'Ambient music'
         """, (username,))
         ambiance_count = cur.fetchone()[0] or 0
-        ambiance = min(100, round(ambiance_count / total * 100))
+        if ambiance_count > 0:
+            ambiance = min(100, round(ambiance_count / total * 100))
+        else:
+            # 无 PANNs 标签时：低能量 + 低对比度 ≈ 氛围感强
+            ambiance = int(round(
+                (100 - physical[1]) * 0.5 + (100 - physical[3]) * 0.5
+            ))
 
-        # 纯器乐倾向 — PANNs 'Classical music'
+        # 纯器乐倾向 — PANNs 'Classical music'，无标签时用物理特征估算
         cur = conn.execute("""
             SELECT COUNT(DISTINCT tt.track_id)
             FROM user_track_behaviors b
@@ -712,9 +718,17 @@ def api_taste_radar(username):
               AND tt.tag_name = 'Classical music'
         """, (username,))
         instrumental_count = cur.fetchone()[0] or 0
-        instrumental = min(100, round(instrumental_count / total * 100))
+        if instrumental_count > 0:
+            instrumental = min(100, round(instrumental_count / total * 100))
+        else:
+            # 无 PANNs 标签时：低能量 + 低人声主导（ZCR高）≈ 器乐倾向
+            # physical[5] = score_vocal_dominant，值越高越偏人声
+            vocal_avg = physical[5] if len(physical) > 5 else 50
+            instrumental = int(round(
+                (100 - physical[1]) * 0.4 + (100 - vocal_avg) * 0.6
+            ))
 
-        # 文化主题共鸣 — Ollama LLM 标签（国风/江湖/古风）
+        # 文化主题共鸣 — Ollama LLM 标签（国风/江湖/古风），无标签时用物理特征估算
         cur = conn.execute("""
             SELECT COUNT(DISTINCT tt.track_id)
             FROM user_track_behaviors b
@@ -724,7 +738,13 @@ def api_taste_radar(username):
               AND (tt.tag_name LIKE '%国风%' OR tt.tag_name LIKE '%江湖%' OR tt.tag_name LIKE '%古风%')
         """, (username,))
         cultural_count = cur.fetchone()[0] or 0
-        cultural = min(100, round(cultural_count / total * 100))
+        if cultural_count > 0:
+            cultural = min(100, round(cultural_count / total * 100))
+        else:
+            # 无 LLM 标签时：中低能量 + 中等音色 + 偏抒情 ≈ 文化共鸣潜力
+            cultural = int(round(
+                (100 - physical[1]) * 0.3 + physical[2] * 0.3 + physical[6] * 0.4
+            ))
 
         conn.close()
 
@@ -881,14 +901,26 @@ def _dna_rebuild_worker(task_id: str, username: str):
                 db_path = _PROJECT_ROOT / 'config' / 'music_vault.db'
                 conn = sqlite3.connect(str(db_path))
                 cur = conn.execute(
-                    "SELECT 1 FROM music_tracks mt "
+                    "SELECT mt.id FROM music_tracks mt "
                     "INNER JOIN track_audio_features f ON mt.id = f.track_id "
                     "WHERE mt.title = ? AND mt.artist = ?",
                     (title, artist),
                 )
-                row = cur.fetchone()
+                existing = cur.fetchone()
                 conn.close()
-                if row:
+                if existing:
+                    # 已有特征的曲目：确保 user_track_behaviors 有记录（清除后需补回）
+                    local_tid = existing[0]
+                    try:
+                        conn2 = sqlite3.connect(str(db_path))
+                        conn2.execute(
+                            "INSERT OR IGNORE INTO user_track_behaviors (track_id, username) VALUES (?, ?)",
+                            (local_tid, username),
+                        )
+                        conn2.commit()
+                        conn2.close()
+                    except Exception:
+                        pass
                     with progress_lock:
                         skipped += 1
                         completed += 1

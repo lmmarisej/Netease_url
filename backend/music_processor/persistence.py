@@ -51,6 +51,8 @@ def persist_track(
     s_tonal     = scoring.score_tonality(features["mfcc_mean"])
     s_contrast  = scoring.score_energy_contrast(features["rms_std"])
     s_sentiment = sentiment.score_lyric_sentiment(lyrics)
+    s_sub_bass  = scoring.score_sub_bass(features["rolloff_mean"], features["centroid_mean"])
+    s_vocal     = scoring.score_vocal_dominant(features["zcr_mean"], features["rms_std"])
 
     conn.execute("""
         INSERT OR REPLACE INTO track_audio_features
@@ -58,9 +60,9 @@ def persist_track(
              score_rhythm, score_tonality, score_energy_contrast,
              score_lyric_sentiment, score_vocal_dominant, score_sub_bass,
              updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (track_id, s_tempo, s_energy, s_bright, s_rhythm_v, s_tonal,
-          s_contrast, s_sentiment, now))
+          s_contrast, s_sentiment, s_vocal, s_sub_bass, now))
 
     # 3. AI 标签
     conn.execute("DELETE FROM track_tags WHERE track_id = ?", (track_id,))

@@ -633,7 +633,7 @@ function onTimeUpdate() {
 function onTrackEnded() {
   isPlaying.value = false
   stopPlayTimer()
-  logPlayback(false)
+  // logPlayback 由 playTrack / nextTrack 统一处理，避免重复
   nextTrack()
 }
 
@@ -692,7 +692,7 @@ async function togglePlay() {
 }
 
 async function nextTrack() {
-  if (currentTrack.track_id) await logPlayback(true)
+  // playTrack 内部自动上报上一首，此处不再重复 logPlayback
   if (playlistIndex.value < playlist.value.length - 1) {
     playlistIndex.value++
     playTrack(playlist.value[playlistIndex.value])
@@ -700,7 +700,7 @@ async function nextTrack() {
 }
 
 async function prevTrack() {
-  if (currentTrack.track_id) await logPlayback(true)
+  // playTrack 内部自动上报上一首，此处不再重复 logPlayback
   if (playlistIndex.value > 0) {
     playlistIndex.value--
     playTrack(playlist.value[playlistIndex.value])
