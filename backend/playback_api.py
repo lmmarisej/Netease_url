@@ -140,21 +140,25 @@ class LikeRequest(BaseModel):
 
     track_id: int = Field(..., gt=0, description="网易云歌曲 ID")
     like: bool = Field(..., description="True=红心喜欢, False=取消红心")
-
-
-class LikeResponse(BaseModel):
-    """红心操作结果"""
-
-    success: bool
-    track_id: int
-    liked: bool
+    title: str = Field(default="", description="歌曲名（可选，用于缓存）")
+    artist: str = Field(default="", description="歌手名（可选，用于缓存）")
 
 
 class LikedIdsResponse(BaseModel):
-    """已喜欢歌曲 ID 列表"""
+    """已喜欢歌曲 ID 列表（兼容旧接口）"""
 
     ids: List[int]
     total: int
+
+
+class LikedSong(BaseModel):
+    """喜欢歌曲完整信息"""
+
+    id: int
+    name: str
+    artists: str
+    album: str = ""
+    picUrl: str = ""
 
 
 # ────────────────────────── SQLAlchemy 数据模型 ──────────────────────────
@@ -602,7 +606,7 @@ async def set_like(req: LikeRequest) -> JSONResponse:
         op = 'add' if req.like else 'del'
         result = api.manipulate_playlist_tracks(liked_pid, [req.track_id], op, cookies)
         _update_local_favorite(str(req.track_id), req.like)
-        _update_liked_cache(req.track_id, req.like)
+        _invalidate_liked_cache()
         return JSONResponse(content={
             "code": 200,
             "data": {
@@ -964,72 +968,86 @@ def _load_netease_cookies() -> Dict[str, str]:
         return {}
 
 
-# ── 喜欢ID缓存（避免每次重复拉取全量歌单） ──
+# ── 喜欢歌曲缓存（含完整信息：id/name/artists/album/picUrl） ──
 
-_liked_ids_cache: Optional[List[int]] = None
-_liked_ids_cookie_hash: Optional[int] = None
+_liked_songs_cache: Optional[List[Dict[str, Any]]] = None
+_liked_cookie_hash: Optional[int] = None
 
 
-def _get_liked_ids() -> List[int]:
-    """获取已喜欢歌曲 ID 列表，带内存缓存（按 cookie 哈希校验是否需要刷新）"""
-    global _liked_ids_cache, _liked_ids_cookie_hash
+def _get_liked_songs() -> List[Dict[str, Any]]:
+    """获取喜欢歌曲完整信息，带内存缓存"""
+    global _liked_songs_cache, _liked_cookie_hash
     cookies = _load_netease_cookies()
     if not cookies:
         return []
     cookie_hash = hash(frozenset(str(v)[:20] for v in cookies.values()))
-    if _liked_ids_cache is not None and _liked_ids_cookie_hash == cookie_hash:
-        return _liked_ids_cache
+    if _liked_songs_cache is not None and _liked_cookie_hash == cookie_hash:
+        return _liked_songs_cache
 
     try:
-        from music_api import user_account, user_playlist
-        account = user_account(cookies)
-        uid = account.get("account", {}).get("id", 0)
+        from music_api import NeteaseAPI
+        api = NeteaseAPI()
+        uid = NeteaseAPI().get_user_account(cookies).get('account', {}).get('id', 0)
         if not uid:
-            return _liked_ids_cache or []
-        playlists = user_playlist(uid, cookies, limit=50)
-        liked_pid = None
-        for p in playlists.get("playlist", []):
-            if p.get("specialType") == 5:
-                liked_pid = p["id"]
-                break
+            return _liked_songs_cache or []
+        liked_pid = api.get_liked_playlist_id(uid, cookies)
         if not liked_pid:
-            logger.info("_get_liked_ids: 未找到 specialType=5 歌单")
-            return _liked_ids_cache or []
+            logger.info("_get_liked_songs: 未找到 specialType=5 歌单")
+            return _liked_songs_cache or []
 
-        # 只拉 trackIds，不拉全量歌曲详情
+        # 全量拉取完整歌单信息
+        import requests as _req
+        from music_api import APIConstants
+        data = {'id': liked_pid, 'n': 100000, 's': 0}
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://music.163.com/",
+            'User-Agent': APIConstants.USER_AGENT,
+            'Referer': APIConstants.REFERER,
         }
-        import requests
-        url = f"https://music.163.com/api/v6/playlist/detail?id={liked_pid}"
-        resp = requests.get(url, headers=headers, cookies=cookies, timeout=30)
+        resp = _req.post('https://music.163.com/api/v6/playlist/detail', data=data,
+                         headers=headers, cookies=cookies, timeout=60)
         resp.raise_for_status()
         body = resp.json()
-        playlist = body.get("playlist", {})
-        track_ids = [t["id"] for t in playlist.get("trackIds", [])]
-        _liked_ids_cache = track_ids
-        _liked_ids_cookie_hash = cookie_hash
-        logger.info(f"_get_liked_ids: 刷新缓存，共 {len(track_ids)} 首")
-        return track_ids
+        tracks = body.get('playlist', {}).get('tracks', [])
+        songs: List[Dict[str, Any]] = []
+        for t in tracks:
+            songs.append({
+                'id': t['id'],
+                'name': t['name'],
+                'artists': '/'.join(a['name'] for a in t.get('ar', [])),
+                'album': t.get('al', {}).get('name', ''),
+                'picUrl': t.get('al', {}).get('picUrl', ''),
+            })
+        _liked_songs_cache = songs
+        _liked_cookie_hash = cookie_hash
+        logger.info(f"_get_liked_songs: 刷新缓存，共 {len(songs)} 首")
+        return songs
     except Exception as e:
-        logger.warning(f"_get_liked_ids 失败: {e}")
-        return _liked_ids_cache or []
+        logger.warning(f"_get_liked_songs 失败: {e}")
+        return _liked_songs_cache or []
 
 
-def _update_liked_cache(track_id: int, add: bool):
-    """增删缓存中的单个 track ID"""
-    global _liked_ids_cache
-    if _liked_ids_cache is None:
-        return
-    if add:
-        if track_id not in _liked_ids_cache:
-            _liked_ids_cache.append(track_id)
-    else:
-        try:
-            _liked_ids_cache.remove(track_id)
-        except ValueError:
-            pass
+def _invalidate_liked_cache() -> None:
+    """操作后使缓存失效，下次访问自动刷新"""
+    global _liked_songs_cache, _liked_cookie_hash
+    _liked_songs_cache = None
+    _liked_cookie_hash = None
+
+
+# ── 向后兼容：保留旧接口 ──
+
+def _get_liked_ids() -> List[int]:
+    """获取已喜欢歌曲 ID 列表（兼容旧调用）"""
+    return [s['id'] for s in _get_liked_songs()]
+
+
+def _update_liked_cache(track_id: int, add: bool) -> None:
+    """增删缓存中的单个 track ID（兼容旧调用，直接使缓存失效）"""
+    global _liked_songs_cache
+    if _liked_songs_cache is not None:
+        if add:
+            _liked_songs_cache.append({'id': track_id, 'name': '', 'artists': '', 'album': '', 'picUrl': ''})
+        else:
+            _liked_songs_cache = [s for s in _liked_songs_cache if s['id'] != track_id]
 
 
 # ── 特征查询 ──
@@ -1506,12 +1524,44 @@ def _ensure_user_behavior(file_path: str, username: str = "admin") -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  ❤️ 喜欢/取消喜欢 — 缓存查询
+#  ❤️ 喜欢歌曲缓存查询 / 搜索
 # ══════════════════════════════════════════════════════════════════════
 
 
-@router.get("/liked-ids", response_model=LikedIdsResponse)
+@router.get("/liked/ids", response_model=LikedIdsResponse)
 def get_liked_ids():
-    """获取当前用户所有已喜欢歌曲 ID（带内存缓存）"""
-    ids = _get_liked_ids()
+    """获取当前用户所有已喜欢歌曲 ID（兼容旧接口）"""
+    songs = _get_liked_songs()
+    ids = [s['id'] for s in songs]
     return LikedIdsResponse(ids=ids, total=len(ids))
+
+
+@router.get("/liked/songs")
+def get_liked_songs_list(
+    keyword: str = Query(default="", description="搜索关键词（歌名/歌手，为空返回全部）"),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
+    limit: int = Query(default=200, ge=1, le=1000, description="返回数量"),
+) -> JSONResponse:
+    """获取喜欢歌曲完整信息，支持按歌名/歌手搜索
+
+    数据来源：内存缓存 → 网易云 API（首次自动拉取全量）
+
+    返回：
+        200: {"code":200, "data": {"total":..., "songs":[...]}}
+        400: 未登录
+        502: 拉取失败
+    """
+    try:
+        songs = _get_liked_songs()
+        if keyword:
+            kw = keyword.lower()
+            songs = [s for s in songs if kw in s['name'].lower() or kw in s['artists'].lower()]
+        total = len(songs)
+        paged = songs[offset:offset + limit]
+        return JSONResponse(content={
+            "code": 200,
+            "data": {"total": total, "songs": paged},
+        })
+    except Exception as e:
+        logger.error(f"获取喜欢歌曲失败: {e}")
+        raise HTTPException(status_code=502, detail=str(e))

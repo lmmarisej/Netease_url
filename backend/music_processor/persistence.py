@@ -32,13 +32,14 @@ def persist_track(
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # 1. 写入元数据 / 获取 track_id
+    file_path_str = str(file_path)
     conn.execute(
         "INSERT OR IGNORE INTO music_tracks (file_path, title, artist, album) "
         "VALUES (?, ?, ?, ?)",
-        (file_path, meta["title"], meta["artist"], meta["album"]),
+        (file_path_str, meta["title"], meta["artist"], meta["album"]),
     )
     cur = conn.execute(
-        "SELECT id FROM music_tracks WHERE file_path = ?", (file_path,)
+        "SELECT id FROM music_tracks WHERE file_path = ?", (file_path_str,)
     )
     track_id = cur.fetchone()[0]
 
