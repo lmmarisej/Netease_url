@@ -2720,14 +2720,53 @@ def api_files_delete():
 
 @app.route('/api/files/stream/<path:filename>', methods=['GET'])
 def api_files_stream(filename):
-    """流式传输文件（用于音频播放和下载）"""
+    """流式传输文件（用于音频播放和下载）
+
+    支持三种查找方式（按优先级）：
+    1. 用户目录 downloads/{user}/filename
+    2. CAS 共享存储 downloads/_store/{hash[:2]}/{hash}.ext
+    3. 直接文件名匹配（向后兼容）
+    """
     try:
         downloads_dir = _get_user_downloads_path()
         file_path = (downloads_dir / filename).resolve()
-        if not file_path.is_relative_to(downloads_dir.resolve()):
-            return APIResponse.error("非法文件路径", 403)
-        if not file_path.exists():
-            return APIResponse.error("文件不存在", 404)
+
+        # ── 先在用户目录查找 ──
+        if file_path.is_relative_to(downloads_dir.resolve()) and file_path.exists():
+            pass
+        else:
+            # ── CAS 存储查找 ──
+            try:
+                from services.song_storage import get_song_storage_service
+                storage = get_song_storage_service()
+                # 尝试按原始文件名查找用户映射
+                user = get_current_user() or 'admin'
+                songs = storage.get_user_songs(user)
+                found_hash = None
+                for s in songs:
+                    if s.get('original_filename') == filename:
+                        found_hash = s['content_hash']
+                        break
+                # 也尝试用 hash 直接查找
+                if not found_hash:
+                    # 文件名可能就是 hash（CAS 直传）
+                    pure_name = Path(filename).stem
+                    if storage.store.has_content(pure_name):
+                        found_hash = pure_name
+
+                if found_hash:
+                    store_path = storage.store.resolve_path(
+                        found_hash,
+                        storage.store._index.get(found_hash, {}).get('ext', 'mp3'),
+                    )
+                    if store_path.exists():
+                        file_path = store_path
+                    else:
+                        return APIResponse.error("文件不存在", 404)
+                else:
+                    return APIResponse.error("文件不存在", 404)
+            except ImportError:
+                return APIResponse.error("文件不存在", 404)
 
         download = request.args.get('download', '0') == '1'
         mimetype = 'application/octet-stream'

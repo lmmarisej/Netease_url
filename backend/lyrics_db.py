@@ -38,13 +38,12 @@ def get_lyrics_db_path() -> Path:
 
 
 class LyricsDB:
-    """歌词数据库管理类（单库 + username 字段隔离）"""
+    """歌词数据库管理类（song_id 唯一，去用户维度）"""
 
-    # 表结构 — username 字段用于用户维度隔离
+    # 表结构 — song_id 唯一主键，去除 username 维度
     TABLE_SCHEMA = """
     CREATE TABLE IF NOT EXISTS lyrics (
-        song_id         INTEGER NOT NULL,
-        username        TEXT    NOT NULL DEFAULT '',
+        song_id         INTEGER NOT NULL PRIMARY KEY,
         song_name       TEXT    NOT NULL DEFAULT '',
         artist          TEXT    NOT NULL DEFAULT '',
         album           TEXT    NOT NULL DEFAULT '',
@@ -52,15 +51,12 @@ class LyricsDB:
         translated_lyric TEXT   NOT NULL DEFAULT '',
         lyric_raw       TEXT    NOT NULL DEFAULT '',
         created_at      TEXT    NOT NULL DEFAULT '',
-        updated_at      TEXT    NOT NULL DEFAULT '',
-        PRIMARY KEY (song_id, username)
+        updated_at      TEXT    NOT NULL DEFAULT ''
     )
     """
 
     # 搜索索引
     INDEX_SCHEMA = """
-    CREATE INDEX IF NOT EXISTS idx_lyrics_username
-        ON lyrics(username);
     CREATE INDEX IF NOT EXISTS idx_lyrics_song_name
         ON lyrics(song_name);
     CREATE INDEX IF NOT EXISTS idx_lyrics_artist
@@ -79,12 +75,49 @@ class LyricsDB:
         self._init_db()
 
     def _init_db(self) -> None:
-        """初始化数据库表结构"""
+        """初始化数据库表结构，并自动迁移旧表（去掉 username 维度）"""
         try:
             conn = sqlite3.connect(str(self.db_path))
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+
+            # ── 建表（新结构） ──
             conn.executescript(self.TABLE_SCHEMA)
+
+            # ── 自动迁移 ──
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(lyrics)").fetchall()]
+            if "username" in cols:
+                logger.info("检测到旧歌词表结构（含 username 列），执行迁移...")
+
+                # 单事务内完成：建新表 → 复制去重 → 替换
+                conn.execute("BEGIN")
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS lyrics_new (
+                        song_id         INTEGER NOT NULL PRIMARY KEY,
+                        song_name       TEXT    NOT NULL DEFAULT '',
+                        artist          TEXT    NOT NULL DEFAULT '',
+                        album           TEXT    NOT NULL DEFAULT '',
+                        original_lyric  TEXT    NOT NULL DEFAULT '',
+                        translated_lyric TEXT   NOT NULL DEFAULT '',
+                        lyric_raw       TEXT    NOT NULL DEFAULT '',
+                        created_at      TEXT    NOT NULL DEFAULT '',
+                        updated_at      TEXT    NOT NULL DEFAULT ''
+                    );
+                """)
+                conn.execute("""
+                    INSERT OR IGNORE INTO lyrics_new
+                    SELECT song_id, MAX(song_name), MAX(artist), MAX(album),
+                           MAX(original_lyric), MAX(translated_lyric), MAX(lyric_raw),
+                           MIN(created_at), MAX(updated_at)
+                    FROM lyrics
+                    GROUP BY song_id
+                """)
+                conn.execute("DROP TABLE lyrics")
+                conn.execute("ALTER TABLE lyrics_new RENAME TO lyrics")
+                conn.execute("COMMIT")
+                logger.info("歌词迁移完成：已去除 username 维度并去重")
+
+            # 确保索引存在
             conn.executescript(self.INDEX_SCHEMA)
             conn.commit()
             conn.close()
@@ -93,10 +126,10 @@ class LyricsDB:
             logger.error(f"初始化歌词数据库失败: {e}")
             raise
 
-        self.username = ''  # 当前操作用户，由调用方设置
+        self.username = ''  # 保留向后兼容，实际不再使用
 
     def set_user(self, username: str) -> None:
-        """设置当前操作用户"""
+        """设置当前操作用户（保留接口向后兼容）"""
         self.username = username or ''
 
     def _now_iso(self) -> str:
@@ -114,24 +147,19 @@ class LyricsDB:
         original_lyric: str = '',
         translated_lyric: str = '',
         lyric_raw: str = '',
-        username: str = '',
+        username: str = '',  # 保留参数向后兼容，不再使用
     ) -> bool:
-        """保存或更新歌词（UPSERT，按 song_id + username 唯一）
-
-        Returns:
-            是否保存成功
-        """
+        """保存或更新歌词（UPSERT，按 song_id 唯一）"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
             now = self._now_iso()
             conn.execute(
                 """INSERT INTO lyrics
-                   (song_id, username, song_name, artist, album,
+                   (song_id, song_name, artist, album,
                     original_lyric, translated_lyric, lyric_raw,
                     created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(song_id, username) DO UPDATE SET
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(song_id) DO UPDATE SET
                     song_name=excluded.song_name,
                     artist=excluded.artist,
                     album=excluded.album,
@@ -139,13 +167,13 @@ class LyricsDB:
                     translated_lyric=excluded.translated_lyric,
                     lyric_raw=excluded.lyric_raw,
                     updated_at=excluded.updated_at""",
-                (song_id, user, song_name, artist, album,
+                (song_id, song_name, artist, album,
                  original_lyric, translated_lyric, lyric_raw,
                  now, now)
             )
             conn.commit()
             conn.close()
-            logger.debug(f"歌词已保存: song_id={song_id}, user={user}, name={song_name}")
+            logger.debug(f"歌词已保存: song_id={song_id}, name={song_name}")
             return True
         except Exception as e:
             logger.error(f"保存歌词失败 (song_id={song_id}): {e}")
@@ -154,13 +182,12 @@ class LyricsDB:
     # ==================== 查询 ====================
 
     def get_lyric(self, song_id: int, username: str = '') -> Optional[Dict[str, Any]]:
-        """根据歌曲 ID 和用户名查询歌词"""
+        """根据歌曲 ID 查询歌词"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT * FROM lyrics WHERE song_id = ? AND username = ?", (song_id, user)
+                "SELECT * FROM lyrics WHERE song_id = ?", (song_id,)
             ).fetchone()
             conn.close()
             return dict(row) if row else None
@@ -175,32 +202,29 @@ class LyricsDB:
         offset: int = 0,
         username: str = '',
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """搜索歌词（模糊匹配 + 用户过滤）"""
+        """搜索歌词（模糊匹配，不再按用户过滤）"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
             conn.row_factory = sqlite3.Row
             like = f"%{keyword}%"
 
             total_row = conn.execute(
                 """SELECT COUNT(*) as cnt FROM lyrics
-                   WHERE username = ? AND (
-                     song_name LIKE ? OR artist LIKE ?
+                   WHERE song_name LIKE ? OR artist LIKE ?
                      OR album LIKE ? OR original_lyric LIKE ?
-                     OR translated_lyric LIKE ?)""",
-                (user, like, like, like, like, like)
+                     OR translated_lyric LIKE ?""",
+                (like, like, like, like, like)
             ).fetchone()
             total = total_row['cnt'] if total_row else 0
 
             rows = conn.execute(
                 """SELECT * FROM lyrics
-                   WHERE username = ? AND (
-                     song_name LIKE ? OR artist LIKE ?
+                   WHERE song_name LIKE ? OR artist LIKE ?
                      OR album LIKE ? OR original_lyric LIKE ?
-                     OR translated_lyric LIKE ?)
+                     OR translated_lyric LIKE ?
                    ORDER BY updated_at DESC
                    LIMIT ? OFFSET ?""",
-                (user, like, like, like, like, like, limit, offset)
+                (like, like, like, like, like, limit, offset)
             ).fetchall()
             conn.close()
             return [dict(r) for r in rows], total
@@ -214,22 +238,17 @@ class LyricsDB:
         offset: int = 0,
         username: str = '',
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """获取歌词列表（分页 + 用户过滤）"""
+        """获取歌词列表（分页，不再按用户过滤）"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
             conn.row_factory = sqlite3.Row
 
-            total_row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM lyrics WHERE username = ?", (user,)
-            ).fetchone()
+            total_row = conn.execute("SELECT COUNT(*) as cnt FROM lyrics").fetchone()
             total = total_row['cnt'] if total_row else 0
 
             rows = conn.execute(
-                """SELECT * FROM lyrics WHERE username = ?
-                   ORDER BY updated_at DESC
-                   LIMIT ? OFFSET ?""",
-                (user, limit, offset)
+                "SELECT * FROM lyrics ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (limit, offset)
             ).fetchall()
             conn.close()
             return [dict(r) for r in rows], total
@@ -242,14 +261,11 @@ class LyricsDB:
     def delete_lyric(self, song_id: int, username: str = '') -> bool:
         """删除指定歌曲的歌词"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
-            conn.execute(
-                "DELETE FROM lyrics WHERE song_id = ? AND username = ?", (song_id, user)
-            )
+            conn.execute("DELETE FROM lyrics WHERE song_id = ?", (song_id,))
             conn.commit()
             conn.close()
-            logger.info(f"歌词已删除: song_id={song_id}, user={user}")
+            logger.info(f"歌词已删除: song_id={song_id}")
             return True
         except Exception as e:
             logger.error(f"删除歌词失败 (song_id={song_id}): {e}")
@@ -299,11 +315,8 @@ class LyricsDB:
     def get_count(self, username: str = '') -> int:
         """获取歌词总数"""
         try:
-            user = username or self.username
             conn = sqlite3.connect(str(self.db_path))
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM lyrics WHERE username = ?", (user,)
-            ).fetchone()
+            row = conn.execute("SELECT COUNT(*) as cnt FROM lyrics").fetchone()
             conn.close()
             return row[0] if row else 0
         except Exception as e:
