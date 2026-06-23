@@ -13,6 +13,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import time
+import threading
 import traceback
 import os
 import json
@@ -67,6 +68,7 @@ try:
     from playback_api import (
         PlayLogRequest, PlaybackLog, SessionLocal,
         _load_netease_cookies as _pb_load_cookies,
+        _get_liked_ids,
         _build_recommend_tracks, _get_local_features,
         _get_local_top_tracks, _async_download_and_score, compute_preference_score,
         _sort_tracks_by_preference, _async_fetch_netease_playlist,
@@ -788,6 +790,193 @@ def api_taste_top_tracks(username):
         return APIResponse.success([], f"获取失败: {str(e)}")
 
 
+# ═══════════════════════════════════════════════════════════════
+#  DNA 雷达重建（基于我喜欢歌单，3线程并行下载+评分）
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/user/<username>/taste-rebuild', methods=['POST'])
+@login_required
+def api_taste_rebuild(username):
+    """触发后台重建 DNA 数据：从我喜欢歌单下载未分析歌曲 → 评分 → 写入 DB"""
+    task = task_manager.create_task(
+        'dna_rebuild', 'DNA雷达重建',
+        username=username,
+    )
+    thread = threading.Thread(
+        target=_dna_rebuild_worker,
+        args=(task.task_id, username),
+        daemon=True,
+        name=f'dna-rebuild-{task.task_id}',
+    )
+    thread.start()
+    return APIResponse.success({'task_id': task.task_id}, "重建任务已启动")
+
+
+def _dna_rebuild_worker(task_id: str, username: str):
+    """3 线程并行下载+分析我喜欢歌单中的歌曲"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    try:
+        # 获取 liked IDs（使用 main.py 全局缓存）
+        global _liked_ids_cache
+        liked_ids = _liked_ids_cache
+        if not liked_ids:
+            # 尝试初始化
+            from playback_api import _get_liked_ids as _pb_get_liked_ids
+            liked_ids = _pb_get_liked_ids()
+            _liked_ids_cache = liked_ids
+        if not liked_ids:
+            task_manager.update_task(task_id, status=TaskStatus.FAILED,
+                                     message='未获取到喜欢歌单', error='liked_ids empty')
+            return
+
+        total = len(liked_ids)
+        task_manager.update_task(task_id, status=TaskStatus.RUNNING,
+                                 progress=0, message=f'共 {total} 首，3 线程并行处理中')
+
+        cookies = _pb_load_cookies()
+        completed = 0
+        skipped = 0
+        failed = 0
+        cancel_lock = threading.Lock()
+        progress_lock = threading.Lock()
+
+        def _check_cancelled() -> bool:
+            t = task_manager.get_task(task_id)
+            return t is not None and t.status == TaskStatus.CANCELLED
+
+        def _process_one(track_id: int) -> Optional[str]:
+            nonlocal completed, skipped, failed
+            with cancel_lock:
+                if _check_cancelled():
+                    return 'cancelled'
+
+            try:
+                # ── 1. 本地命中检查（先获取 title+artist 以匹配 DB） ──
+                detail = name_v1(track_id) or {}
+                songs = detail.get('songs', [])
+                if songs:
+                    title = songs[0].get('name', f'track_{track_id}')
+                    ar = songs[0].get('ar', [])
+                    artist = ', '.join(a.get('name', '') for a in ar) if ar else ''
+                else:
+                    title = f'track_{track_id}'
+                    artist = ''
+
+                db_path = _PROJECT_ROOT / 'config' / 'music_vault.db'
+                conn = sqlite3.connect(str(db_path))
+                cur = conn.execute(
+                    "SELECT 1 FROM music_tracks mt "
+                    "INNER JOIN track_audio_features f ON mt.id = f.track_id "
+                    "WHERE mt.title = ? AND mt.artist = ?",
+                    (title, artist),
+                )
+                row = cur.fetchone()
+                conn.close()
+                if row:
+                    with progress_lock:
+                        skipped += 1
+                        completed += 1
+                    return 'skipped'
+
+                # ── 2. 需要下载 → 获取 URL ──
+                if not cookies:
+                    with progress_lock:
+                        failed += 1
+                        completed += 1
+                    return 'no_cookies'
+
+                from music_api import url_v1
+                url_result = url_v1(track_id, 'exhigh', cookies)
+                song_url = None
+                if isinstance(url_result, dict):
+                    data_list = url_result.get('data', [])
+                    song_url = data_list[0].get('url', '') if data_list else ''
+
+                if not song_url:
+                    with progress_lock:
+                        failed += 1
+                        completed += 1
+                    return 'no_url'
+
+                # ── 3. 下载 + CAS 存储 ──
+                from services.song_storage import SongStorageService
+                metadata = {'track_id': str(track_id), 'song_name': title}
+                try:
+                    store_path, _ = SongStorageService.download_and_store(
+                        username, song_url, metadata,
+                    )
+                except Exception:
+                    with progress_lock:
+                        failed += 1
+                        completed += 1
+                    return 'download_failed'
+
+                # ── 4. 自动评分 ──
+                from music_processor.single_scorer import score_single_track
+                try:
+                    score_single_track(
+                        store_path,
+                        title=title,
+                        artist=artist,
+                        album='',
+                        username=username,
+                    )
+                except Exception:
+                    with progress_lock:
+                        failed += 1
+                        completed += 1
+                    return 'score_failed'
+
+                with progress_lock:
+                    completed += 1
+                return 'scored'
+
+            except Exception:
+                with progress_lock:
+                    failed += 1
+                    completed += 1
+                return 'error'
+
+        # ── 3 线程执行 ──
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_map = {executor.submit(_process_one, tid): tid for tid in liked_ids}
+            for future in as_completed(future_map):
+                if _check_cancelled():
+                    # 尝试取消未开始的
+                    for f in future_map:
+                        f.cancel()
+                    break
+                try:
+                    future.result()
+                except Exception:
+                    pass  # 已在 _process_one 内部处理
+
+                with progress_lock:
+                    pct = int(completed / total * 100) if total else 0
+                    task_manager.update_task(
+                        task_id, progress=pct,
+                        message=f'{completed}/{total} | 跳过:{skipped} 失败:{failed}'
+                    )
+
+        with cancel_lock:
+            if _check_cancelled():
+                task_manager.update_task(
+                    task_id, status=TaskStatus.CANCELLED,
+                    message=f'用户取消 | 已处理 {completed}/{total}',
+                )
+                return
+
+        task_manager.update_task(
+            task_id, status=TaskStatus.COMPLETED, progress=100,
+            message=f'完成 {completed}/{total} | 跳过:{skipped} 失败:{failed}',
+        )
+    except Exception as e:
+        api_service.logger.error(f"DNA rebuild 异常: {e}")
+        task_manager.update_task(task_id, status=TaskStatus.FAILED,
+                                 message=f'异常中断', error=str(e))
+
+
 @app.route('/api/user/<username>/taste-top-tags', methods=['GET'])
 @login_required
 def api_taste_top_tags(username):
@@ -1255,6 +1444,18 @@ def api_tasks_clear():
     """清理已完成的任务"""
     count = task_manager.clear_completed()
     return APIResponse.success({'cleared': count}, f"已清理 {count} 个已完成任务")
+
+
+@app.route('/api/tasks/<task_id>/cancel', methods=['POST'])
+def api_task_cancel(task_id):
+    """取消正在运行的任务"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        return APIResponse.error("任务不存在", 404)
+    if task.status != TaskStatus.RUNNING:
+        return APIResponse.error("只能取消运行中的任务", 400)
+    task_manager.update_task(task_id, status=TaskStatus.CANCELLED, message='用户取消')
+    return APIResponse.success(None, "任务已取消")
 
 
 @app.route('/api/health', methods=['GET'])

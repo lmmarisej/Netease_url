@@ -99,7 +99,7 @@
               >
                 <v-icon size="16">{{ sortOrder === 'desc' ? 'mdi-sort-descending' : 'mdi-sort-ascending' }}</v-icon>
               </v-btn>
-              <span class="card-badge" v-if="recommendTracks.length">{{ recommendTracks.length }} 首</span>
+              <span class="card-badge" v-if="totalTracks">{{ totalTracks }} 首</span>
             </div>
             <!-- 歌单源 Tab 切换 -->
             <div class="source-tabs">
@@ -114,6 +114,30 @@
                   <span class="source-tab-icon">{{ src.icon }}</span>
                   <span class="source-tab-label">{{ src.label }}</span>
                 </button>
+              </div>
+              <!-- 喜欢歌单搜索 -->
+              <div v-if="sourceType === 'liked'" class="source-tab-extra">
+                <v-text-field
+                  v-model="likedSearchKeyword"
+                  label="搜索喜欢的歌曲"
+                  placeholder="歌名 / 歌手"
+                  variant="solo-filled"
+                  density="compact"
+                  hide-details
+                  clearable
+                  rounded="lg"
+                  class="liked-search-input"
+                  prepend-inner-icon="mdi-magnify"
+                  @click:clear="clearLikedSearch"
+                  @keyup.enter="searchLikedSongs"
+                />
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="flat"
+                  :loading="likedSearchLoading"
+                  @click="searchLikedSongs"
+                >搜索</v-btn>
               </div>
               <!-- 自定义歌单 ID 输入 -->
               <div v-if="sourceType === 'custom_playlist'" class="source-tab-extra">
@@ -141,12 +165,12 @@
               <v-progress-circular indeterminate size="20" width="2" color="primary" />
               <span class="text-caption text-medium-emphasis ml-2">加载推荐...</span>
             </div>
-            <div v-else-if="!recommendTracks.length" class="list-empty">
+            <div v-else-if="!displayTracks.length" class="list-empty">
               选择歌单源并刷新，发现新音乐
             </div>
             <TransitionGroup v-else name="track-list" tag="div" class="track-scroll">
               <div
-                v-for="t in recommendTracks"
+                v-for="t in displayTracks"
                 :key="t.track_id"
                 class="track-row"
                 :class="{ 'track-row--active': currentTrack.track_id === t.track_id }"
@@ -496,8 +520,28 @@ const totalPages = ref(1)
 const totalTracks = ref(0)
 const hasAudioSource = ref(false)
 
+// ── 喜欢歌单搜索 ──
+const likedSearchKeyword = ref('')
+const likedSearchLoading = ref(false)
+const likedSearchResults = ref(null)  // null = 未搜索，[] = 无结果
+const isLikedSearchMode = ref(false)  // 是否在搜索结果模式
+
 // ── 喜欢状态 ──
 const likedIds = ref(new Set())
+
+// ── 当前显示的曲目列表（正常推荐 或 搜索结果） ──
+const displayTracks = computed(() => {
+  if (isLikedSearchMode.value && likedSearchResults.value) {
+    return likedSearchResults.value.map(s => ({
+      track_id: String(s.id),
+      title: s.name,
+      artist: s.artists,
+      cover_url: s.picUrl || '',
+      album: s.album || '',
+    }))
+  }
+  return recommendTracks.value
+})
 
 // ── 分页数据缓存：key = `${sourceType}|${sortOrder}|${playlistId}` ──
 //    每个 key 下存多页数据：Map<pageNumber, { tracks, total, total_pages }>
@@ -839,6 +883,42 @@ async function toggleLike(track) {
   }
 }
 
+// ── 喜欢歌单搜索 ──
+async function searchLikedSongs() {
+  const keyword = likedSearchKeyword.value.trim()
+  if (!keyword) {
+    clearLikedSearch()
+    return
+  }
+  likedSearchLoading.value = true
+  try {
+    const res = await api.get('/api/v3/music/liked/songs', { params: { keyword, limit: 500 } })
+    const songs = res.data?.data?.songs
+    if (songs?.length) {
+      likedSearchResults.value = songs
+      isLikedSearchMode.value = true
+      totalTracks.value = songs.length
+      window.__snackbar?.(`找到 ${songs.length} 首匹配歌曲`, 'success')
+    } else {
+      likedSearchResults.value = []
+      isLikedSearchMode.value = true
+      totalTracks.value = 0
+      window.__snackbar?.('未找到匹配的歌曲', 'warning')
+    }
+  } catch (e) {
+    window.__snackbar?.('搜索失败: ' + (e.message || '网络错误'), 'error')
+  } finally {
+    likedSearchLoading.value = false
+  }
+}
+
+function clearLikedSearch() {
+  likedSearchKeyword.value = ''
+  likedSearchResults.value = null
+  isLikedSearchMode.value = false
+  fetchRecommend()
+}
+
 function formatTime(sec) {
   if (!sec || sec <= 0) return '0:00'
   const m = Math.floor(sec / 60)
@@ -1106,6 +1186,8 @@ function switchSource(val) {
   totalTracks.value = 0
   recommendTracks.value = []
   playlist.value = []
+  // 切换源时清除搜索状态
+  clearLikedSearch()
   // 优先从缓存恢复当前 source 的第 1 页
   if (!_restoreFromCache(_cacheKey())) {
     fetchRecommend()
