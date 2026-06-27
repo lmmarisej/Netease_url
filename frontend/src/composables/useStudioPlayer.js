@@ -46,6 +46,8 @@ export function useStudioPlayer(audioRef) {
   const pageSize = ref(20)
   const totalPages = ref(1)
   const totalTracks = ref(0)
+  const loadingMore = ref(false)
+  const hasMore = computed(() => page.value < totalPages.value)
   const recommendCache = reactive(new Map())
 
   // ═══════════════ 播放模式 ═══════════════
@@ -364,29 +366,41 @@ export function useStudioPlayer(audioRef) {
     finally { recommendLoading.value = false }
   }
 
-  async function fetchRecommend() {
+  async function fetchRecommend(append = false) {
     if (sourceType.value === 'custom_playlist' && !customPlaylistId.value.trim()) {
       window.__snackbar?.('请输入歌单 ID', 'warning'); return
     }
     if (sourceType.value === 'top50') { await _fetchTop50(); return }
     const key = _cacheKey()
-    if (_restoreFromCache(key)) return
-    recommendLoading.value = true
+    if (!append && _restoreFromCache(key)) return
+    if (append) loadingMore.value = true; else recommendLoading.value = true
     try {
       const params = { source_type: sourceType.value, sort_order: sortOrder.value, page: page.value, page_size: pageSize.value }
       if (sourceType.value === 'custom_playlist') params.playlist_id = customPlaylistId.value.trim()
       const res = await api.get('/api/v3/music/recommend', { params })
       const body = res.data?.data
       if (body?.tracks) {
-        recommendTracks.value = body.tracks; playlist.value = body.tracks; playlistIndex.value = -1
-        _resetPlayModeState(); totalTracks.value = body.total || body.tracks.length
+        if (append) {
+          recommendTracks.value = [...recommendTracks.value, ...body.tracks]
+          playlist.value = [...recommendTracks.value]
+        } else {
+          recommendTracks.value = body.tracks; playlist.value = body.tracks; playlistIndex.value = -1
+          _resetPlayModeState()
+        }
+        totalTracks.value = body.total || (append ? recommendTracks.value.length : body.tracks.length)
         totalPages.value = body.total_pages || 1; page.value = body.page || 1
         if (!recommendCache.has(key)) recommendCache.set(key, new Map())
         recommendCache.get(key).set(page.value, { tracks: body.tracks, total: body.total || body.tracks.length, total_pages: body.total_pages || 1 })
-        window.__snackbar?.(`第 ${page.value}/${totalPages.value} 页，共 ${totalTracks.value} 首`, 'success')
+        if (!append) window.__snackbar?.(`第 ${page.value}/${totalPages.value} 页，共 ${totalTracks.value} 首`, 'success')
       }
     } catch (e) { window.__snackbar?.('推荐加载失败: ' + (e.message || '网络错误'), 'error') }
-    finally { recommendLoading.value = false }
+    finally { recommendLoading.value = false; loadingMore.value = false }
+  }
+
+  async function loadMore() {
+    if (!hasMore.value || loadingMore.value) return
+    page.value++
+    await fetchRecommend(true)
   }
 
   function switchSource(val) {
@@ -394,7 +408,7 @@ export function useStudioPlayer(audioRef) {
     sourceType.value = val; page.value = 1; totalPages.value = 1; totalTracks.value = 0
     recommendTracks.value = []; playlist.value = []
     clearLikedSearch()
-    if (!_restoreFromCache(_cacheKey())) fetchRecommend()
+    fetchRecommend()
   }
 
   function goToPage(p) {
@@ -477,7 +491,7 @@ export function useStudioPlayer(audioRef) {
     isPlaying, playElapsed, playedAccum, hasAudioSource, currentTrack, progressPercent,
     playlist, playlistIndex, recommendTracks, recommendLoading,
     sourceType, customPlaylistId, sortOrder,
-    page, pageSize, totalPages, totalTracks,
+    page, pageSize, totalPages, totalTracks, loadingMore, hasMore,
     // 播放模式
     playMode, playModeOptions, currentPlayModeMeta, showQueue,
     canPrev, canNext, queueDisplayTracks,
@@ -492,7 +506,7 @@ export function useStudioPlayer(audioRef) {
     startPlayTimer, stopPlayTimer, onTimeUpdate, onTrackEnded,
     playTrack, togglePlay, nextTrack, prevTrack, seekProgress,
     logPlayback, fetchLyrics, updateActiveLyric,
-    fetchRecommend, switchSource, goToPage,
+    fetchRecommend, loadMore, switchSource, goToPage,
     initLikedIds, toggleLike, searchLikedSongs, clearLikedSearch,
     formatTime, prefColor,
   }

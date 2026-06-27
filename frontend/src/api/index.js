@@ -212,3 +212,39 @@ export function getWeightConfig() {
 export function saveWeightConfig(data) {
   return api.post('/api/v3/config/weights', data)
 }
+
+// ==================== 自定义集合 ====================
+
+export function getCollections() {
+  return api.get('/api/v3/collections')
+}
+
+export function createCollection(name) {
+  return api.post('/api/v3/collections', { name })
+}
+
+export function deleteCollection(id) {
+  return api.delete(`/api/v3/collections/${id}`)
+}
+
+export function addToCollection(collectionId, trackId, title, artist) {
+  return api.post(`/api/v3/collections/${collectionId}/tracks`, { track_id: trackId, title, artist })
+}
+
+export function removeFromCollection(collectionId, trackId) {
+  return api.delete(`/api/v3/collections/${collectionId}/tracks/${encodeURIComponent(trackId)}`)
+}
+
+export function getCollectionRadar(collectionId) {
+  return api.get(`/api/v3/collections/${collectionId}/radar`)
+}
+
+// ==================== 歌单解析 ====================
+
+export function analyzePlaylist(playlistId) {
+  return api.post('/api/v3/playlist/analyze', { playlist_id: playlistId })
+}
+
+export function getPlaylistAnalyses() {
+  return api.get('/api/v3/playlist/analyses')
+}

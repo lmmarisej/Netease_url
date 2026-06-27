@@ -173,7 +173,9 @@
           <span class="text-caption text-medium-emphasis ml-2">加载推荐...</span>
         </div>
         <div v-else-if="!player.displayTracks.value.length" class="list-empty">选择歌单源并刷新，发现新音乐</div>
-        <TransitionGroup v-else name="track-list" tag="div" class="track-scroll">
+        <template v-else>
+        <div ref="trackScrollRef" @scroll="onTrackScroll" class="track-scroll">
+        <TransitionGroup name="track-list" tag="div">
           <div
             v-for="t in player.displayTracks.value"
             :key="t.track_id"
@@ -189,20 +191,62 @@
               <div class="track-name text-truncate">{{ t.title }}</div>
               <div class="track-artist-name text-truncate">{{ t.artist }}</div>
             </div>
+            <!-- ⊕ 加入集合 -->
+            <v-menu :close-on-content-click="false" location="bottom end">
+              <template #activator="{ props: menuProps }">
+                <v-btn icon="mdi-playlist-plus" size="x-small" variant="text" v-bind="menuProps" @click.stop="openCollectionMenu(t)" class="track-collection-btn" />
+              </template>
+              <v-list density="compact" min-width="180" max-height="320" class="collection-menu" style="overflow-y:auto">
+                <v-list-item
+                  v-for="col in collections"
+                  :key="col.id"
+                  :title="col.name"
+                  :subtitle="col.track_count + ' 首'"
+                  @click.stop="toggleCollectionTrack(col, t)"
+                >
+                  <template #prepend>
+                    <v-icon size="16" :color="col._hasTrack ? 'primary' : undefined">
+                      {{ col._hasTrack ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                    </v-icon>
+                  </template>
+                  <template #append>
+                    <v-btn
+                      icon="mdi-delete-outline"
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      @click.stop="deleteCol(col.id)"
+                    />
+                  </template>
+                </v-list-item>
+                <v-divider />
+                <v-list-item @click.stop="showNewCollectionDialog = true; newCollectionName = ''; pendingTrack = t">
+                  <template #prepend><v-icon size="16" color="primary">mdi-plus</v-icon></template>
+                  <v-list-item-title class="text-primary">新建集合</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
             <v-chip v-if="t.preference_score > 0" size="x-small" variant="flat" :color="player.prefColor(t.preference_score)" class="track-chip track-chip--pref">{{ t.preference_score }}分</v-chip>
-            <v-chip v-if="t.source === 'local'" size="x-small" variant="tonal" color="success" class="track-chip">本地</v-chip>
-            <v-chip v-else-if="t.source === 'netease'" size="x-small" variant="tonal" :color="t.bpm < 0 ? 'warning' : 'success'" class="track-chip">{{ t.bpm < 0 ? '待扫描' : '已分析' }}</v-chip>
             <v-btn icon size="x-small" variant="text" :color="player.likedIds.value.has(Number(t.track_id)) ? 'red' : undefined" @click.stop="player.toggleLike(t)">
               <v-icon size="15">{{ player.likedIds.value.has(Number(t.track_id)) ? 'mdi-heart' : 'mdi-heart-outline' }}</v-icon>
             </v-btn>
           </div>
         </TransitionGroup>
-        <!-- 分页控件 -->
-        <div class="pagination-bar" v-if="player.totalPages.value > 1">
-          <v-btn icon="mdi-chevron-left" size="small" variant="text" :disabled="player.page.value <= 1" @click="player.goToPage(player.page.value - 1)" />
-          <span class="pagination-info">{{ player.page.value }} / {{ player.totalPages.value }} 页（共 {{ player.totalTracks.value }} 首）</span>
-          <v-btn icon="mdi-chevron-right" size="small" variant="text" :disabled="player.page.value >= player.totalPages.value" @click="player.goToPage(player.page.value + 1)" />
         </div>
+        <!-- 懒加载：滚动触发 + 底部状态 -->
+        <div v-if="player.loadingMore.value" class="load-more-bar">
+          <v-progress-circular indeterminate size="18" width="2" color="primary" />
+          <span class="text-caption text-medium-emphasis ml-2">加载更多...</span>
+        </div>
+        <div v-else-if="player.hasMore.value" class="load-more-bar load-more-bar--btn">
+          <v-btn variant="text" size="small" @click="player.loadMore()">
+            加载更多（{{ player.totalTracks.value - player.recommendTracks.value.length }} 首待加载）
+          </v-btn>
+        </div>
+        <div v-else-if="player.recommendTracks.value.length >= 20" class="load-more-bar">
+          <span class="text-caption text-medium-emphasis">已加载全部 {{ player.totalTracks.value }} 首</span>
+        </div>
+        </template>
       </div>
     </div>
 
@@ -235,6 +279,29 @@
         </div>
       </div>
     </div>
+
+    <!-- 新建集合对话框 -->
+    <v-dialog v-model="showNewCollectionDialog" max-width="360">
+      <v-card>
+        <v-card-title class="text-body-1">新建集合</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="newCollectionName"
+            label="集合名称"
+            variant="outlined"
+            density="compact"
+            hide-details
+            autofocus
+            @keyup.enter="confirmCreateCollection"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showNewCollectionDialog = false">取消</v-btn>
+          <v-btn variant="flat" color="primary" :disabled="!newCollectionName.trim()" @click="confirmCreateCollection">创建并添加</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -273,6 +340,144 @@ function handleProgressSeek(e) {
   player.seekProgress(ratio)
 }
 defineExpose({ progressWrapRef })
+
+// ── 滚动懒加载 ──
+const trackScrollRef = ref(null)
+function onTrackScroll() {
+  const el = trackScrollRef.value
+  if (!el || player.loadingMore.value || !player.hasMore.value) return
+  // 距离底部 120px 内自动加载
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+    player.loadMore()
+  }
+}
+
+// ── 集合管理 ──
+import axios from 'axios'
+
+function _authHeaders() {
+  const token = localStorage.getItem('token')
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+async function _apiGet(url) { return axios.get(url, { headers: _authHeaders() }) }
+async function _apiPost(url, data) { return axios.post(url, data, { headers: _authHeaders() }) }
+async function _apiDelete(url) { return axios.delete(url, { headers: _authHeaders() }) }
+
+const collections = ref([])
+const showNewCollectionDialog = ref(false)
+const newCollectionName = ref('')
+const pendingTrack = ref(null)
+
+async function loadCollections() {
+  try {
+    const res = await _apiGet('/api/v3/collections')
+    const body = res?.data
+    if (body?.success && Array.isArray(body.data)) {
+      collections.value = body.data
+    } else {
+      console.warn('loadCollections: 响应格式异常', body)
+    }
+  } catch (e) {
+    console.error('loadCollections 失败:', e)
+  }
+}
+loadCollections()
+
+async function openCollectionMenu(track) {
+  pendingTrack.value = track
+  await loadCollections()
+  for (const col of collections.value) {
+    col._hasTrack = (col.track_ids || []).includes(String(track.track_id))
+  }
+}
+
+async function toggleCollectionTrack(col, track) {
+  try {
+    if (col._hasTrack) {
+      await _apiDelete(`/api/v3/collections/${col.id}/tracks/${encodeURIComponent(String(track.track_id))}`)
+      col.track_count = Math.max(0, col.track_count - 1)
+      col.track_ids = (col.track_ids || []).filter(id => id !== String(track.track_id))
+      col._hasTrack = false
+      window.__snackbar?.('已从集合移除', 'info')
+    } else {
+      await _apiPost(`/api/v3/collections/${col.id}/tracks`, {
+        track_id: String(track.track_id), title: track.title, artist: track.artist,
+      })
+      col.track_count = (col.track_count || 0) + 1
+      if (!col.track_ids) col.track_ids = []
+      col.track_ids.push(String(track.track_id))
+      col._hasTrack = true
+      window.__snackbar?.(`已添加到「${col.name}」`, 'success')
+    }
+  } catch (e) {
+    console.error('集合操作失败', e)
+    window.__snackbar?.('操作失败', 'error')
+  }
+}
+
+async function deleteCol(id) {
+  const col = collections.value.find(c => c.id === id)
+  const ok = await window.__confirm({
+    title: '解散集合',
+    text: `确定解散「${col?.name || '未知'}」？内含 ${col?.track_count || 0} 首歌曲将被移除。`,
+    confirmText: '解散',
+    confirmColor: 'error',
+  })
+  if (!ok) return
+  try {
+    await _apiDelete(`/api/v3/collections/${id}`)
+    collections.value = collections.value.filter(c => c.id !== id)
+    window.__snackbar?.('集合已解散', 'info')
+  } catch (e) {
+    console.error('解散集合失败:', e)
+    window.__snackbar?.('操作失败', 'error')
+  }
+}
+
+async function confirmCreateCollection() {
+  const name = newCollectionName.value.trim()
+  if (!name) return
+  // 检查重复名称
+  if (collections.value.some(c => c.name === name)) {
+    window.__snackbar?.('集合「' + name + '」已存在', 'warning')
+    showNewCollectionDialog.value = false
+    newCollectionName.value = ''
+    return
+  }
+  showNewCollectionDialog.value = false
+  newCollectionName.value = ''
+  try {
+    const res = await _apiPost('/api/v3/collections', { name })
+    if (res?.data?.success) {
+      const newCol = res.data.data
+      newCol._hasTrack = false
+      newCol.track_ids = []
+      if (pendingTrack.value) {
+        try {
+          await _apiPost(`/api/v3/collections/${newCol.id}/tracks`, {
+            track_id: String(pendingTrack.value.track_id),
+            title: pendingTrack.value.title,
+            artist: pendingTrack.value.artist,
+          })
+          newCol.track_count = 1
+          newCol.track_ids = [String(pendingTrack.value.track_id)]
+          newCol._hasTrack = true
+        } catch (e) {
+          console.error('添加歌曲到集合失败:', e)
+        }
+      }
+      collections.value.unshift(newCol)
+      window.__snackbar?.(`集合「${name}」已创建`, 'success')
+    } else {
+      window.__snackbar?.('创建失败: ' + (res?.data?.message || '未知错误'), 'error')
+    }
+  } catch (e) {
+    console.error('创建集合异常:', e)
+    window.__snackbar?.('创建失败: ' + (e?.message || '网络错误'), 'error')
+  }
+}
 </script>
 
 <style scoped>
@@ -353,7 +558,7 @@ defineExpose({ progressWrapRef })
 .progress-bar-wrap::before { content: ''; position: absolute; inset: -8px 0; z-index: 0; }
 .progress-bar-track { position: relative; z-index: 1; width: 100%; height: 4px; background: rgba(var(--v-theme-on-surface), 0.08); border-radius: 2px; overflow: hidden; }
 .progress-bar { height: 100%; background: rgb(var(--v-theme-primary)); border-radius: 2px; transition: width 0.25s linear; pointer-events: none; }
-.player-controls { display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
+.player-controls { display: flex; align-items: center; justify-content: center; gap: 14px; position: relative; }
 
 /* 队列浮窗 */
 .queue-popover-menu {
@@ -383,12 +588,12 @@ defineExpose({ progressWrapRef })
 
 /* 推荐流列表 */
 .recommend-list { flex: 1; min-height: 0; }
-.track-scroll { max-height: 440px; overflow-y: auto; }
+.track-scroll { max-height: 360px; overflow-y: auto; }
 .list-loading, .list-empty { display: flex; align-items: center; justify-content: center; padding: 32px 0; color: var(--text-3); font-size: 0.85rem; }
 .list-empty { text-align: center; }
 
 .track-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 8px;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.04);
   cursor: pointer; border-radius: 10px; transition: background 0.15s;
 }
@@ -400,6 +605,8 @@ defineExpose({ progressWrapRef })
 .track-name { font-size: 0.82rem; font-weight: 600; color: var(--text-1); }
 .track-artist-name { font-size: 0.72rem; color: var(--text-2); margin-top: 1px; }
 .track-chip { flex-shrink: 0; }
+.track-collection-btn { opacity: 0; transition: opacity 0.15s; }
+.track-row:hover .track-collection-btn { opacity: 1; }
 
 /* ── 毛玻璃卡片（继承父组件 CSS 变量） ── */
 .glass-card {
@@ -435,8 +642,8 @@ defineExpose({ progressWrapRef })
 .playlist-id-input { max-width: 200px; }
 
 /* 分页 */
-.pagination-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--aero-border); }
-.pagination-info { font-size: 13px; color: var(--text-2); min-width: 140px; text-align: center; }
+.load-more-bar { display: flex; align-items: center; justify-content: center; padding: 12px; border-top: 1px solid var(--aero-border); }
+.load-more-bar--btn { padding: 6px 12px; }
 
 /* 播放状态卡片 */
 .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

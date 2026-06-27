@@ -28,11 +28,10 @@ import requests
 from flask import Flask, request, send_file, render_template, Response, stream_with_context, send_from_directory
 from threading import Thread
 
-# 将 backend/ 目录添加到 Python 路径，以支持模块导入
+# 将 backend/ 目录和项目根目录添加到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# 项目根目录
 _PROJECT_ROOT = Path(os.path.dirname(os.path.abspath(__file__))).parent
+sys.path.insert(0, str(_PROJECT_ROOT))
 
 try:
     from music_api import (
@@ -503,6 +502,10 @@ api_service = MusicAPIService(config)
 from routes_flask import register_all_routes
 register_all_routes(app, api_service, config, operation_logger, _PROJECT_ROOT)
 
+# ── 注册集合 & 歌单解析路由 ──
+from collection_api import register_collection_routes
+register_collection_routes(app)
+
 # ── 全局引用（供 route 模块懒导入） ──
 _NETEASE_HOT_CHART_ID = 3778678
 _liked_ids_cache = None
@@ -658,4 +661,5 @@ config.sync_interval = int(file_config.get('sync_interval', settings.get('sync_i
 config.cron_expression = file_config.get('cron_expression', settings.get('cron_expression', os.getenv('CRON_EXPRESSION', ''))) or None
 config.download_lyric_save_lrc = settings.get('download_lyric_save_lrc', True)
 
-start_api_server()
+if __name__ == '__main__':
+    start_api_server()

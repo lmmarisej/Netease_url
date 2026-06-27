@@ -70,6 +70,95 @@
         </div>
       </div>
     </template>
+
+    <!-- ── 自定义集合 ── -->
+    <div class="section-header" v-if="collections.length">
+      <v-icon size="20" color="#a78bfa">mdi-playlist-music</v-icon>
+      <span>我的集合</span>
+    </div>
+    <div class="collection-grid" v-if="collections.length">
+      <div v-for="col in collections" :key="col.id" class="glass-card collection-card">
+        <div class="card-header">
+          <span class="card-title">{{ col.name }}</span>
+          <v-spacer />
+          <v-chip size="x-small" variant="flat" color="rgba(var(--v-theme-on-surface),0.08)" class="track-count-chip">{{ col.track_count }} 首</v-chip>
+          <v-btn v-if="col._radar && col._radarCount > 0" icon="mdi-refresh" size="x-small" variant="text" color="primary" @click="genColRadar(col)" title="重新生成" />
+          <v-btn icon="mdi-delete-outline" size="x-small" variant="text" color="error" @click="deleteCol(col.id)" />
+        </div>
+        <div v-if="col._radar && col._radarCount > 0" class="mini-chart-wrap">
+          <v-chart :option="makeMiniRadarOption(col._radar)" autoresize style="width:100%;height:100%" />
+          <div v-if="col._pendingCount > 0" class="pending-hint">
+            <v-icon size="14" color="#f59e0b">mdi-progress-download</v-icon>
+            <span>{{ col._radarCount }}首已分析 · {{ col._pendingCount }}首后台下载中</span>
+          </div>
+        </div>
+        <div v-else-if="col._radar && col._pendingCount > 0" class="mini-chart-wrap mini-chart-empty">
+          <v-progress-circular indeterminate size="20" width="2" color="primary" />
+          <span style="font-size:0.7rem;color:var(--text-3)">{{ col._pendingCount }}首后台下载分析中<br/>完成后点击上方重新生成</span>
+        </div>
+        <div v-else-if="col._radar" class="mini-chart-wrap mini-chart-empty">
+          <v-icon size="20" color="rgba(var(--v-theme-on-surface),0.2)">mdi-chart-bubble</v-icon>
+          <span style="font-size:0.7rem;color:var(--text-3)">暂无分析数据</span>
+        </div>
+        <div v-else-if="col.track_count > 0" class="mini-chart-wrap mini-chart-empty">
+          <v-btn variant="tonal" size="small" color="primary" prepend-icon="mdi-chart-bubble" :loading="col._loading" @click="genColRadar(col)">生成雷达</v-btn>
+        </div>
+        <div v-else class="mini-chart-wrap mini-chart-empty">
+          <v-icon size="24" color="rgba(var(--v-theme-on-surface),0.15)">mdi-music-note-off</v-icon>
+          <span style="font-size:0.7rem;color:var(--text-3)">暂无歌曲</span>
+        </div>
+        <div v-if="col._topTracks?.length" class="top-tracks-mini">
+          <div class="top-track-row" v-for="(t, i) in col._topTracks.slice(0, 3)" :key="i">
+            <span class="top-track-idx">{{ i + 1 }}</span>
+            <span class="top-track-name text-truncate">{{ t.title }}</span>
+            <span class="top-track-artist text-truncate">{{ t.artist }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 歌单解析 ── -->
+    <div class="section-header">
+      <v-icon size="20" color="#f59e0b">mdi-radar</v-icon>
+      <span>歌单雷达解析</span>
+    </div>
+    <div class="glass-card playlist-analyzer">
+      <div class="playlist-input-row">
+        <v-text-field
+          v-model="playlistUrl"
+          label="输入歌单 ID 或链接"
+          variant="outlined"
+          density="compact"
+          hide-details
+          placeholder="https://music.163.com/playlist?id=123456"
+          @keyup.enter="triggerPlaylistAnalysis"
+        />
+        <v-btn variant="flat" color="warning" :loading="playlistAnalyzing" :disabled="!playlistUrl.trim()" @click="triggerPlaylistAnalysis">
+          <v-icon left>mdi-magnify</v-icon> 解析
+        </v-btn>
+      </div>
+      <v-alert v-if="playlistError" type="error" variant="tonal" density="compact" closable class="mt-3" @click:close="playlistError=''">{{ playlistError }}</v-alert>
+      <!-- 解析结果卡片 -->
+      <div v-for="pa in playlistAnalyses" :key="pa.playlist_id" class="glass-card analysis-card mt-3">
+        <div class="analysis-card-inner">
+          <img v-if="pa.cover_url" :src="pa.cover_url" class="analysis-cover" alt="" />
+          <div class="analysis-info">
+            <div class="analysis-name">{{ pa.name }}</div>
+            <div class="analysis-meta">{{ pa.track_count }} 首 · playlist #{{ pa.playlist_id }}</div>
+          </div>
+        </div>
+        <div class="mini-chart-wrap mini-chart-analysis">
+          <v-chart :option="makeMiniRadarOption(pa.radar)" autoresize style="width:100%;height:100%" />
+        </div>
+        <div v-if="pa.top_tracks?.length" class="top-tracks-mini">
+          <div class="top-track-row" v-for="(t, i) in pa.top_tracks.slice(0, 3)" :key="i">
+            <span class="top-track-idx">{{ i + 1 }}</span>
+            <span class="top-track-name text-truncate">{{ t.title }}</span>
+            <span class="top-track-artist text-truncate">{{ t.artist }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -87,7 +176,18 @@ import { RadarChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
+import axios from 'axios'
 import { createAuthAxios } from '@/api/authAxios.js'
+
+function _authHeaders() {
+  const token = localStorage.getItem('token')
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+async function _apiGet(url) { return axios.get(url, { headers: _authHeaders() }) }
+async function _apiPost(url, data) { return axios.post(url, data, { headers: _authHeaders() }) }
+async function _apiDelete(url) { return axios.delete(url, { headers: _authHeaders() }) }
 
 const api = createAuthAxios()
 use([CanvasRenderer, RadarChart, TooltipComponent, LegendComponent])
@@ -272,8 +372,151 @@ function _stopRebuildPolling() {
   if (_rebuildPollTimer) { clearInterval(_rebuildPollTimer); _rebuildPollTimer = null }
 }
 
-onMounted(loadDnaData)
+onMounted(() => {
+  loadDnaData()
+  loadCollections()
+  loadPlaylistAnalyses()
+})
 onBeforeUnmount(_stopRebuildPolling)
+
+// ── 集合雷达卡片 ──
+const collections = ref([])
+const playlistUrl = ref('')
+const playlistAnalyzing = ref(false)
+const playlistError = ref('')
+const playlistAnalyses = ref([])
+
+async function loadCollections() {
+  try {
+    const res = await _apiGet('/api/v3/collections')
+    const body = res?.data
+    if (body?.success && Array.isArray(body.data)) {
+      collections.value = body.data.map(col => ({ ...col, _radar: null, _topTracks: [], _loading: false, _radarCount: 0 }))
+      _loadCollectionRadarCache()
+    } else {
+      console.warn('DnaTab loadCollections: 响应异常', body)
+    }
+  } catch (e) {
+    console.error('DnaTab loadCollections 失败:', e)
+  }
+}
+
+function _saveCollectionRadarCache() {
+  try {
+    const cache = {}
+    for (const col of collections.value) {
+      if (col._radar) {
+        cache[col.id] = { radar: col._radar, topTracks: col._topTracks, count: col._radarCount, pending: col._pendingCount || 0 }
+      }
+    }
+    localStorage.setItem('dna_collection_radar_cache', JSON.stringify(cache))
+  } catch {}
+}
+
+function _loadCollectionRadarCache() {
+  try {
+    const raw = localStorage.getItem('dna_collection_radar_cache')
+    if (!raw) return
+    const cache = JSON.parse(raw)
+    for (const col of collections.value) {
+      const c = cache[col.id]
+      if (c) {
+        col._radar = c.radar
+        col._topTracks = c.topTracks || []
+        col._radarCount = c.count ?? (c.radar?.length ? 1 : 0)
+        col._pendingCount = c.pending ?? 0
+      }
+    }
+  } catch {}
+}
+
+async function genColRadar(col) {
+  col._loading = true
+  try {
+    const res = await _apiGet(`/api/v3/collections/${col.id}/radar`)
+    const data = res?.data
+    if (data.success) {
+      col._radar = data.data.radar || []
+      col._topTracks = data.data.top_tracks || []
+      col._radarCount = data.data.count || 0
+      col._pendingCount = data.data.pending_count || 0
+      _saveCollectionRadarCache()
+      // 如果还有未分析歌曲，提示用户
+      if (col._pendingCount > 0) {
+        window.__snackbar?.(`${col._radarCount}首已分析，${col._pendingCount}首后台下载分析中，稍后重新生成即可`, 'info')
+      }
+    }
+  } catch (e) {
+    console.error('生成集合雷达失败:', e)
+  } finally {
+    col._loading = false
+  }
+}
+
+async function deleteCol(id) {
+  try {
+    await _apiDelete(`/api/v3/collections/${id}`)
+    collections.value = collections.value.filter(c => c.id !== id)
+    window.__snackbar?.('集合已删除', 'info')
+  } catch (e) {
+    window.__snackbar?.('删除失败: ' + (e.message || ''), 'error')
+  }
+}
+
+// ── 歌单解析 ──
+async function triggerPlaylistAnalysis() {
+  const raw = playlistUrl.value.trim()
+  if (!raw) return
+  // 提取 playlist ID
+  let pid = raw
+  const m = raw.match(/playlist[?&]?id[=:]?(\d+)/i)
+  if (m) pid = m[1]
+  if (!/^\d+$/.test(pid)) { playlistError.value = '无法识别歌单 ID，请检查链接'; return }
+  playlistAnalyzing.value = true; playlistError.value = ''
+  try {
+    const res = await _apiPost('/api/v3/playlist/analyze', { playlist_id: pid })
+    const data = res?.data
+    if (data.success) {
+      window.__snackbar?.('歌单解析完成！', 'success')
+      await loadPlaylistAnalyses()
+    } else {
+      playlistError.value = data.message || '解析失败'
+    }
+  } catch (e) {
+    playlistError.value = '请求失败: ' + (e.message || '网络错误')
+  } finally { playlistAnalyzing.value = false }
+}
+
+async function loadPlaylistAnalyses() {
+  try {
+    const res = await _apiGet('/api/v3/playlist/analyses')
+    const data = res?.data
+    if (data.success) playlistAnalyses.value = data.data || []
+  } catch { /* skip */ }
+}
+
+// ── 迷你雷达图表 ──
+const dimLabels = ['速度', '能量', '明亮', '起伏', '低音', '人声', '情感', '氛围', '器乐', '文化']
+function makeMiniRadarOption(radarArr) {
+  const values = radarArr?.length === 10 ? radarArr : [50, 50, 50, 50, 50, 50, 50, 50, 50, 50]
+  const dark = isDark.value
+  return {
+    radar: {
+      shape: 'polygon', center: ['50%', '50%'], radius: '72%', splitNumber: 5,
+      name: { show: false },
+      splitArea: { areaStyle: { color: dark ? ['rgba(139,92,246,0.02)', 'rgba(139,92,246,0.04)'] : ['rgba(139,92,246,0.03)', 'rgba(139,92,246,0.06)'] } },
+      axisLine: { lineStyle: { color: dark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.2)', width: 1 } },
+      splitLine: { lineStyle: { color: dark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.12)', width: 1, type: 'dashed' } },
+      indicator: dimLabels.map(l => ({ name: l, max: 100 })),
+    },
+    series: [{
+      type: 'radar', symbol: 'none',
+      lineStyle: { color: '#a78bfa', width: 2 },
+      areaStyle: { color: 'rgba(167,139,250,0.25)' },
+      data: [{ value: values, name: 'DNA' }],
+    }],
+  }
+}
 </script>
 
 <style scoped>
@@ -342,4 +585,46 @@ onBeforeUnmount(_stopRebuildPolling)
   .dna-layout, .skeleton-grid { grid-template-columns: 1fr; }
   .chart-wrap { height: 300px; }
 }
+
+/* ── 集合卡片 ── */
+.section-header {
+  display: flex; align-items: center; gap: 8px; margin: 28px 0 14px;
+  font-weight: 700; font-size: 0.95rem; color: var(--text-1);
+}
+.collection-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px;
+}
+.collection-card { padding: 12px; }
+.track-count-chip { font-size: 0.65rem !important; height: 20px !important; }
+.mini-chart-wrap { width: 100%; height: 120px; margin: 2px 0; }
+.mini-chart-loading, .mini-chart-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.pending-hint {
+  display: flex; align-items: center; gap: 4px; margin-top: 4px;
+  font-size: 0.68rem; color: #f59e0b;
+  background: rgba(245,158,11,0.08); border-radius: 8px; padding: 4px 8px;
+}
+
+/* ── TOP 曲目 ── */
+.top-tracks-mini { margin-top: 6px; border-top: 1px solid rgba(var(--v-theme-on-surface), 0.06); padding-top: 6px; }
+.top-track-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 0.7rem; }
+.top-track-idx {
+  width: 16px; height: 16px; border-radius: 4px; background: rgba(139,92,246,0.12);
+  color: #a78bfa; font-size: 0.6rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.top-track-name { flex: 1; color: var(--text-1); font-weight: 500; }
+.top-track-artist { color: var(--text-3); max-width: 80px; }
+
+/* ── 歌单解析 ── */
+.playlist-input-row { display: flex; gap: 10px; align-items: flex-start; }
+.playlist-input-row :deep(.v-text-field) { flex: 1; }
+.analysis-card { margin-bottom: 12px; }
+.analysis-card-inner { display: flex; align-items: center; gap: 10px; }
+.analysis-cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.analysis-info { flex: 1; min-width: 0; }
+.analysis-name { font-size: 0.85rem; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.analysis-meta { font-size: 0.7rem; color: var(--text-3); margin-top: 2px; }
+.mini-chart-analysis { height: 140px; }
 </style>
