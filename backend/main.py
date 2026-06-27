@@ -3550,55 +3550,56 @@ def api_v3_music_liked_songs():
     except Exception as e:
         api_service.logger.error(f"获取 liked-songs 失败: {e}")
         return APIResponse.error(str(e), 502)
-    # 加载.env文件
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass  # .env文件不是必须的
-    
-    # 加载 config/settings.json（优先级最高）
-    def load_settings_json() -> Dict[str, Any]:
-        """从 config/settings.json 加载项目配置"""
-        settings_path = _PROJECT_ROOT / 'config' / 'settings.json'
-        if settings_path.exists():
-            try:
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
 
-    settings = load_settings_json()
-    
-    # 从环境变量读取基础配置（settings.json > .env > 默认值）
-    def parse_env_list(env_var: str, default: str = "") -> List[str]:
-        """解析环境变量中的列表（逗号分隔）"""
-        value = os.getenv(env_var, default)
-        if not value:
-            return []
-        return [item.strip() for item in value.split(',') if item.strip()]
-    
-    # 先尝试从sync_config.json加载同步配置
-    file_config = load_sync_config_from_file()
-    
-    # 更新全局config对象（settings.json > 环境变量 > 默认值）
-    config.host = settings.get('host', os.getenv('HOST', '0.0.0.0'))
-    config.port = int(settings.get('port', os.getenv('PORT', '5000')))
-    config.debug = settings.get('debug', os.getenv('DEBUG', 'false').lower() == 'true')
-    config.downloads_dir = settings.get('downloads_dir', os.getenv('DOWNLOADS_DIR', 'downloads'))
-    config.download_save_local = settings.get('download_save_local', os.getenv('DOWNLOAD_SAVE_LOCAL', 'false').lower() in ('true', '1', 'yes'))
-    config.download_browser = settings.get('download_browser', os.getenv('DOWNLOAD_BROWSER', 'true').lower() in ('true', '1', 'yes'))
-    config.log_level = settings.get('log_level', os.getenv('LOG_LEVEL', 'INFO'))
-    config.max_file_size = int(settings.get('max_file_size', os.getenv('MAX_FILE_SIZE', str(config.max_file_size))))
-    config.request_timeout = int(settings.get('request_timeout', os.getenv('REQUEST_TIMEOUT', str(config.request_timeout))))
-    # 定时同步配置：优先使用JSON文件配置，其次环境变量
-    config.enable_sync = file_config.get('enable_sync', settings.get('enable_sync', os.getenv('ENABLE_SYNC', 'false').lower() == 'true'))
-    config.playlist_ids = file_config.get('playlist_ids', settings.get('playlist_ids', parse_env_list('PLAYLIST_IDS')))
-    config.sync_quality = file_config.get('sync_quality', settings.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless'))))
-    config.sync_interval = int(file_config.get('sync_interval', settings.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600'))))
-    config.cron_expression = file_config.get('cron_expression', settings.get('cron_expression', os.getenv('CRON_EXPRESSION', ''))) or None
-    config.download_lyric_save_lrc = settings.get('download_lyric_save_lrc', True)
-    
-    start_api_server()
+# 加载.env文件
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # .env文件不是必须的
+
+# 加载 config/settings.json（优先级最高）
+def load_settings_json() -> Dict[str, Any]:
+    """从 config/settings.json 加载项目配置"""
+    settings_path = _PROJECT_ROOT / 'config' / 'settings.json'
+    if settings_path.exists():
+        try:
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+settings = load_settings_json()
+
+# 从环境变量读取基础配置（settings.json > .env > 默认值）
+def parse_env_list(env_var: str, default: str = "") -> List[str]:
+    """解析环境变量中的列表（逗号分隔）"""
+    value = os.getenv(env_var, default)
+    if not value:
+        return []
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+# 先尝试从sync_config.json加载同步配置
+file_config = load_sync_config_from_file()
+
+# 更新全局config对象（settings.json > 环境变量 > 默认值）
+config.host = settings.get('host', os.getenv('HOST', '0.0.0.0'))
+config.port = int(settings.get('port', os.getenv('PORT', '5000')))
+config.debug = settings.get('debug', os.getenv('DEBUG', 'false').lower() == 'true')
+config.downloads_dir = settings.get('downloads_dir', os.getenv('DOWNLOADS_DIR', 'downloads'))
+config.download_save_local = settings.get('download_save_local', os.getenv('DOWNLOAD_SAVE_LOCAL', 'false').lower() in ('true', '1', 'yes'))
+config.download_browser = settings.get('download_browser', os.getenv('DOWNLOAD_BROWSER', 'true').lower() in ('true', '1', 'yes'))
+config.log_level = settings.get('log_level', os.getenv('LOG_LEVEL', 'INFO'))
+config.max_file_size = int(settings.get('max_file_size', os.getenv('MAX_FILE_SIZE', str(config.max_file_size))))
+config.request_timeout = int(settings.get('request_timeout', os.getenv('REQUEST_TIMEOUT', str(config.request_timeout))))
+# 定时同步配置：优先使用JSON文件配置，其次环境变量
+config.enable_sync = file_config.get('enable_sync', settings.get('enable_sync', os.getenv('ENABLE_SYNC', 'false').lower() == 'true'))
+config.playlist_ids = file_config.get('playlist_ids', settings.get('playlist_ids', parse_env_list('PLAYLIST_IDS')))
+config.sync_quality = file_config.get('sync_quality', settings.get('sync_quality', os.getenv('SYNC_QUALITY', os.getenv('LEVEL', 'lossless'))))
+config.sync_interval = int(file_config.get('sync_interval', settings.get('sync_interval', os.getenv('SYNC_INTERVAL', '3600'))))
+config.cron_expression = file_config.get('cron_expression', settings.get('cron_expression', os.getenv('CRON_EXPRESSION', ''))) or None
+config.download_lyric_save_lrc = settings.get('download_lyric_save_lrc', True)
+
+start_api_server()
 

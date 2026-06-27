@@ -10,9 +10,9 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# 1. 优先安装依赖（利用缓存）
+# 1. 优先安装依赖（利用缓存，使用国内镜像加速）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 2. 预装 wget（供 entrypoint 下载 PANNs 模型使用）
 RUN apt-get update && apt-get install -y --no-install-recommends wget && \

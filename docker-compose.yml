@@ -13,6 +13,7 @@ services:
       - ./logs:/app/logs
       - ./backend:/app/backend
       - /vol3/1000/音乐/网易云/panns_data:/root/panns_data
+      - /vol3/1000/音乐/网易云/torch_cache:/root/.cache/torch
     environment:
       - PORT=5000
     restart: unless-stopped

@@ -14,7 +14,7 @@ CHUNK = 256 * 1024  # 256KB
 
 # ── PANNs ──────────────────────────────────────────────────────
 PANNS_DIR = os.path.join(os.path.expanduser("~"), "panns_data")
-PANNS_URL = "https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
+PANNS_URL = "https://zenodo.org/records/3987831/files/Cnn14_mAP%3D0.431.pth"
 PANNS_OUT = os.path.join(PANNS_DIR, "Cnn14_mAP=0.431.pth")
 PANNS_LABELS_URL = "http://storage.googleapis.com/us_audioset/youtube_corpus/v1/csv/class_labels_indices.csv"
 PANNS_LABELS_OUT = os.path.join(PANNS_DIR, "class_labels_indices.csv")
@@ -154,7 +154,7 @@ def download_panns() -> bool:
 
 def download_demucs() -> bool:
     """下载 Demucs htdemucs 模型权重。"""
-    if not os.path.exists(DEMUCS_OUT) or os.path.getsize(DEMUCS_OUT) < 100_000_000:
+    if not os.path.exists(DEMUCS_OUT) or os.path.getsize(DEMUCS_OUT) < 70_000_000:
         return download_file(DEMUCS_URL, DEMUCS_OUT, "Demucs htdemucs")
     else:
         print(f"[Demucs] 模型已存在 ({os.path.getsize(DEMUCS_OUT) / 1024 / 1024:.0f} MB)，跳过")
