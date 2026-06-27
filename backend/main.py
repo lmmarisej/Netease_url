@@ -888,11 +888,20 @@ def _dna_rebuild_worker(task_id: str, username: str):
                     return 'no_cookies'
 
                 from music_api import url_v1
-                url_result = url_v1(track_id, 'standard', cookies)
+                url_result = url_v1(track_id, 'exhigh', cookies)
                 song_url = None
                 if isinstance(url_result, dict):
                     data_list = url_result.get('data', [])
                     song_url = data_list[0].get('url', '') if data_list else ''
+                # 降级尝试 standard 和 higher
+                if not song_url:
+                    for q in ('lossless', 'hires', 'standard'):
+                        url_result = url_v1(track_id, q, cookies)
+                        if isinstance(url_result, dict):
+                            data_list = url_result.get('data', [])
+                            song_url = data_list[0].get('url', '') if data_list else ''
+                        if song_url:
+                            break
 
                 if not song_url:
                     with progress_lock:
