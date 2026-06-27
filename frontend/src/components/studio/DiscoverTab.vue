@@ -53,33 +53,15 @@
         </div>
         <!-- 控制按钮 -->
         <div class="player-controls">
-          <!-- 播放模式切换 -->
-          <v-menu location="top" :close-on-content-click="true">
-            <template #activator="{ props: menuProps }">
-              <v-btn
-                v-bind="menuProps"
-                :icon="player.currentPlayModeMeta.value.icon"
-                variant="text"
-                size="small"
-                :title="player.currentPlayModeMeta.value.label"
-                aria-label="播放模式"
-              />
-            </template>
-            <v-list density="compact" class="mode-menu">
-              <v-list-item
-                v-for="m in player.playModeOptions"
-                :key="m.value"
-                :active="player.playMode.value === m.value"
-                :title="m.label"
-                :prepend-icon="m.icon"
-                @click="player.playMode.value = m.value; player.showQueue.value = false"
-              >
-                <template #append v-if="player.playMode.value === m.value">
-                  <v-icon size="16" color="primary">mdi-check</v-icon>
-                </template>
-              </v-list-item>
-            </v-list>
-          </v-menu>
+          <!-- 播放模式切换：点击直接轮换 -->
+          <v-btn
+            :icon="player.currentPlayModeMeta.value.icon"
+            variant="text"
+            size="small"
+            :title="player.currentPlayModeMeta.value.label"
+            aria-label="切换播放模式"
+            @click="cyclePlayMode"
+          />
 
           <v-btn icon="mdi-skip-previous" variant="text" size="small" :disabled="!player.canPrev.value" @click="player.prevTrack" />
           <v-btn icon size="large" :color="player.isPlaying.value ? 'primary' : undefined" variant="flat" @click="player.togglePlay">
@@ -272,6 +254,14 @@ const props = defineProps({
 
 const player = props.player
 
+// 播放模式轮换：顺序 → 随机 → 加权 → 单曲循环 → 顺序
+const MODE_ORDER = ['sequential', 'random', 'weighted', 'repeat-one']
+function cyclePlayMode() {
+  const idx = MODE_ORDER.indexOf(player.playMode.value)
+  player.playMode.value = MODE_ORDER[(idx + 1) % MODE_ORDER.length]
+  player.showQueue.value = false
+}
+
 // 进度条点击：本地计算比例后委托给 composable
 const progressWrapRef = ref(null)
 function handleProgressSeek(e) {
@@ -364,9 +354,6 @@ defineExpose({ progressWrapRef })
 .progress-bar-track { position: relative; z-index: 1; width: 100%; height: 4px; background: rgba(var(--v-theme-on-surface), 0.08); border-radius: 2px; overflow: hidden; }
 .progress-bar { height: 100%; background: rgb(var(--v-theme-primary)); border-radius: 2px; transition: width 0.25s linear; pointer-events: none; }
 .player-controls { display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
-
-/* 播放模式菜单 */
-.mode-menu { min-width: 160px; background: rgba(var(--v-theme-surface), 0.95) !important; backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 
 /* 队列浮窗 */
 .queue-popover-menu {
