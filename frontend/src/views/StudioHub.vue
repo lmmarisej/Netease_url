@@ -62,7 +62,9 @@
             <div class="progress-row">
               <span class="progress-time">{{ formatTime(playElapsed) }}</span>
               <div class="progress-bar-wrap" @click="seekProgress" ref="progressWrapRef">
-                <div class="progress-bar" :style="{ width: progressPercent + '%' }" />
+                <div class="progress-bar-track">
+                  <div class="progress-bar" :style="{ width: progressPercent + '%' }" />
+                </div>
               </div>
               <span class="progress-time">{{ formatTime(currentTrack.duration || 0) }}</span>
             </div>
@@ -984,8 +986,9 @@ function seekProgress(e) {
   const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const target = ratio * currentTrack.duration
   playElapsed.value = target
-  if (audioRef.value?.src) {
-    audioRef.value.currentTime = target
+  // 直接 seek 音频元素（忽略可能的 DOMException）
+  if (audioRef.value) {
+    try { audioRef.value.currentTime = target } catch { /* 音频未就绪 */ }
   }
 }
 
@@ -1560,11 +1563,20 @@ onBeforeUnmount(() => {
 }
 .progress-time { font-size: 0.7rem; color: var(--text-3); font-variant-numeric: tabular-nums; min-width: 32px; }
 .progress-bar-wrap {
-  flex: 1; height: 4px; background: rgba(var(--v-theme-on-surface), 0.08); border-radius: 2px; overflow: hidden;
+  flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer;
+  position: relative;
+}
+/* 扩大点击区域的伪元素 */
+.progress-bar-wrap::before {
+  content: ''; position: absolute; inset: -8px 0; z-index: 0;
+}
+.progress-bar-track {
+  position: relative; z-index: 1; width: 100%; height: 4px;
+  background: rgba(var(--v-theme-on-surface), 0.08); border-radius: 2px; overflow: hidden;
 }
 .progress-bar {
   height: 100%; background: rgb(var(--v-theme-primary)); border-radius: 2px;
-  transition: width 0.25s linear;
+  transition: width 0.25s linear; pointer-events: none;
 }
 .player-controls { display: flex; align-items: center; justify-content: center; gap: 12px; }
 

@@ -121,7 +121,24 @@ function onProgressClick(e: MouseEvent) {
 
 .progress-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 0 8px; }
 .progress-time { font-size: 0.7rem; color: rgba(var(--v-theme-on-surface),0.38); font-variant-numeric: tabular-nums; min-width: 32px; }
-.progress-bar-wrap { flex: 1; height: 4px; background: rgba(var(--v-theme-on-surface),0.08); border-radius: 2px; overflow: hidden; cursor: pointer; }
-.progress-bar { height: 100%; background: rgb(var(--v-theme-primary)); border-radius: 2px; transition: width 0.25s linear; }
+.progress-bar-wrap {
+  flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer;
+  position: relative;
+}
+/* 扩大点击区域（上下各扩展 8px） */
+.progress-bar-wrap::before {
+  content: ''; position: absolute; inset: -8px 0; z-index: 0;
+}
+/* 实际轨道视觉层 */
+.progress-bar-wrap::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  height: 4px; background: rgba(var(--v-theme-on-surface),0.08); border-radius: 2px;
+  z-index: 1; pointer-events: none;
+}
+.progress-bar {
+  position: relative; z-index: 2; height: 4px;
+  background: rgb(var(--v-theme-primary)); border-radius: 2px;
+  transition: width 0.25s linear; pointer-events: none;
+}
 .player-controls { display: flex; align-items: center; justify-content: center; gap: 12px; }
 </style>
