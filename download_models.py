@@ -65,7 +65,7 @@ def download_file(url: str, dest: str, label: str = "", threads: int = THREADS) 
                     data.extend(chunk)
                     downloaded[tid] += len(chunk)
         except Exception as e:
-            print(f"\n  [{label}] 线程 {tid} 失败: {e}")
+            print(f"\n  [{label}] 线程 {tid} 失败: {e}", flush=True)
             results[tid] = None
             return
         results[tid] = (start, data)
@@ -75,10 +75,10 @@ def download_file(url: str, dest: str, label: str = "", threads: int = THREADS) 
             done = sum(downloaded)
             pct = done / total * 100
             mb = done / 1024 / 1024
-            print(f"\r  [{label}] {pct:.0f}%  {mb:.0f}/{total / 1024 / 1024:.0f} MB", end="")
+            print(f"\r  [{label}] {pct:.0f}%  {mb:.0f}/{total / 1024 / 1024:.0f} MB", end="", flush=True)
             time.sleep(1)
         done = sum(downloaded)
-        print(f"\r  [{label}] 100%  {done / 1024 / 1024:.0f}/{total / 1024 / 1024:.0f} MB")
+        print(f"\r  [{label}] 100%  {done / 1024 / 1024:.0f}/{total / 1024 / 1024:.0f} MB", flush=True)
 
     thread_list = [threading.Thread(target=_download_part, args=(i,)) for i in range(threads)]
     progress_thread = threading.Thread(target=_progress)
@@ -120,7 +120,7 @@ def _download_single(url: str, dest: str, label: str) -> bool:
                     if total:
                         pct = downloaded / total * 100
                         mb = downloaded / 1024 / 1024
-                        print(f"\r  [{label}] {pct:.0f}%  {mb:.0f}/{total / 1024 / 1024:.0f} MB", end="")
+                        print(f"\r  [{label}] {pct:.0f}%  {mb:.0f}/{total / 1024 / 1024:.0f} MB", end="", flush=True)
         print(f"\n[{label}] 完成: {os.path.getsize(dest) / 1024 / 1024:.0f} MB → {dest}")
         return True
     except Exception as e:

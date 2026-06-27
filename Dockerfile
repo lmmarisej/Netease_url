@@ -36,5 +36,6 @@ COPY entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENV TZ=Asia/Shanghai
+ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
 ENTRYPOINT ["/entrypoint.sh"]
