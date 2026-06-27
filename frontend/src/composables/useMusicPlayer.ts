@@ -80,6 +80,62 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   const customPlaylistId = ref('')
   const sortOrder = ref('desc')
 
+  // ── 播放模式 ──
+  const playMode = ref<'sequential' | 'random' | 'weighted' | 'repeat-one'>('sequential')
+  const playedIndices = ref(new Set<number>())
+  const playHistoryStack = ref<number[]>([])
+  const showQueue = ref(false)
+
+  const playModeOptions = [
+    { value: 'sequential', icon: 'mdi-arrow-right-bold', label: '顺序播放' },
+    { value: 'random', icon: 'mdi-shuffle-variant', label: '随机播放' },
+    { value: 'weighted', icon: 'mdi-chart-bell-curve', label: '智能推荐' },
+    { value: 'repeat-one', icon: 'mdi-repeat', label: '单曲循环' },
+  ] as const
+
+  const currentPlayModeMeta = computed(() =>
+    playModeOptions.find(m => m.value === playMode.value) || playModeOptions[0]
+  )
+
+  const canPrev = computed(() => {
+    if (!playlist.value.length) return false
+    if (playMode.value === 'repeat-one') return true
+    if (playMode.value === 'random') return playHistoryStack.value.length > 0
+    return playlistIndex.value > 0
+  })
+
+  const canNext = computed(() => {
+    if (!playlist.value.length) return false
+    if (playMode.value === 'repeat-one' || playMode.value === 'random' || playMode.value === 'weighted') return true
+    return playlistIndex.value < playlist.value.length - 1
+  })
+
+  // ── 队列展示 ──
+  const queueDisplayTracks = computed(() => {
+    if (!playlist.value.length) return []
+    const curIdx = playlistIndex.value
+    switch (playMode.value) {
+      case 'sequential':
+        if (curIdx < 0) return playlist.value.map((t, i) => ({ ...t, _qi: i + 1 }))
+        return playlist.value.map((t, i) => ({ ...t, _qi: i + 1, _isCurrent: i === curIdx }))
+      case 'random':
+        return playlist.value
+          .map((t, i) => ({ ...t, _qi: i + 1 }))
+          .filter((_, i) => !playedIndices.value.has(i))
+      case 'weighted':
+        return playlist.value.map((t, i) => ({ ...t, _qi: i + 1, _isCurrent: i === curIdx }))
+      case 'repeat-one':
+        if (curIdx >= 0) return [{ ...playlist.value[curIdx], _qi: 1, _isCurrent: true }]
+        return []
+    }
+  })
+
+  function _resetPlayModeState() {
+    playedIndices.value = new Set()
+    playHistoryStack.value = []
+    showQueue.value = false
+  }
+
   // ── 歌词 ──
   const lyricLines = ref<LyricLine[]>([])
   const activeLyricIdx = ref(-1)
@@ -121,6 +177,18 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     isPlaying.value = false
     stopPlayTimer()
     logPlayback(false)
+    if (playMode.value === 'repeat-one') {
+      // 单曲循环：seek 到开头重新播放
+      const target = 0
+      playElapsed.value = target
+      if (audioRef.value) {
+        audioRef.value.currentTime = target
+        audioRef.value.play().catch(() => {})
+        isPlaying.value = true
+        startPlayTimer()
+      }
+      return
+    }
     nextTrack()
   }
 
@@ -140,6 +208,19 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     playElapsed.value = 0
     playedAccum.value = 0
     hasAudioSource.value = !!t.file_path
+
+    // 自动定位 playlist 索引
+    const idx = playlist.value.findIndex(p => String(p.track_id) === String(t.track_id))
+    if (idx >= 0) playlistIndex.value = idx
+
+    // 随机模式：记录到历史
+    if (playMode.value === 'random' && idx >= 0) {
+      if (!playedIndices.value.has(idx)) {
+        playedIndices.value = new Set([...playedIndices.value, idx])
+      }
+      playHistoryStack.value.push(idx)
+      if (playHistoryStack.value.length > 100) playHistoryStack.value = playHistoryStack.value.slice(-50)
+    }
 
     const token = localStorage.getItem('token') || ''
     if (t.file_path) {
@@ -177,17 +258,82 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   function nextTrack() {
     if (!playlist.value.length) return
     if (currentTrack.track_id) logPlayback(true)
-    if (playlistIndex.value < playlist.value.length - 1) {
-      playlistIndex.value++
-      playTrack(playlist.value[playlistIndex.value])
+
+    switch (playMode.value) {
+      case 'sequential':
+        if (playlistIndex.value < playlist.value.length - 1) {
+          playlistIndex.value++
+          playTrack(playlist.value[playlistIndex.value])
+        }
+        break
+      case 'random': {
+        const remaining = playlist.value
+          .map((_, i) => i)
+          .filter(i => !playedIndices.value.has(i))
+        if (remaining.length === 0) {
+          playedIndices.value = new Set()
+          remaining.push(...playlist.value.map((_, i) => i))
+        }
+        const randIdx = remaining[Math.floor(Math.random() * remaining.length)]
+        playedIndices.value = new Set([...playedIndices.value, randIdx])
+        playHistoryStack.value.push(randIdx)
+        playlistIndex.value = randIdx
+        playTrack(playlist.value[randIdx])
+        break
+      }
+      case 'weighted': {
+        const weights = playlist.value.map(t => Math.max(t.preference_score || 1, 1))
+        const totalWeight = weights.reduce((a, b) => a + b, 0)
+        let rand = Math.random() * totalWeight
+        for (let i = 0; i < playlist.value.length; i++) {
+          rand -= weights[i]
+          if (rand <= 0) {
+            playlistIndex.value = i
+            playTrack(playlist.value[i])
+            break
+          }
+        }
+        break
+      }
+      case 'repeat-one':
+        if (audioRef.value) {
+          audioRef.value.currentTime = 0
+          audioRef.value.play().catch(() => {})
+        }
+        break
     }
   }
 
   function prevTrack() {
+    if (!playlist.value.length) return
     if (currentTrack.track_id) logPlayback(true)
-    if (playlistIndex.value > 0) {
-      playlistIndex.value--
-      playTrack(playlist.value[playlistIndex.value])
+
+    switch (playMode.value) {
+      case 'sequential':
+      case 'weighted':
+        if (playlistIndex.value > 0) {
+          playlistIndex.value--
+          playTrack(playlist.value[playlistIndex.value])
+        }
+        break
+      case 'random':
+        if (playHistoryStack.value.length > 1) {
+          playHistoryStack.value.pop()
+          const prevIdx = playHistoryStack.value[playHistoryStack.value.length - 1]
+          playlistIndex.value = prevIdx
+          playTrack(playlist.value[prevIdx])
+        } else if (playHistoryStack.value.length === 1) {
+          const firstIdx = playHistoryStack.value[0]
+          playlistIndex.value = firstIdx
+          playTrack(playlist.value[firstIdx])
+        }
+        break
+      case 'repeat-one':
+        if (audioRef.value) {
+          audioRef.value.currentTime = 0
+          audioRef.value.play().catch(() => {})
+        }
+        break
     }
   }
 
@@ -240,6 +386,7 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
         recommendTracks.value = body.tracks
         playlist.value = body.tracks
         playlistIndex.value = -1
+        _resetPlayModeState()
         ;(window as any).__snackbar?.(`已加载 ${body.tracks.length} 首推荐`, 'success')
       }
     } catch (e: any) {
@@ -314,6 +461,9 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     currentTrack, progressPercent,
     recommendTracks, recommendLoading, playlist, playlistIndex,
     sourceType, customPlaylistId, sortOrder,
+    // 播放模式
+    playMode, playModeOptions, currentPlayModeMeta, showQueue,
+    canPrev, canNext, queueDisplayTracks,
     lyricLines, activeLyricIdx, lyricLoading, visibleLyricLines,
     // 播放控制
     playTrack, togglePlay, nextTrack, prevTrack, seekProgress,

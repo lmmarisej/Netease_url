@@ -70,7 +70,35 @@
             </div>
             <!-- 控制按钮 -->
             <div class="player-controls">
-                <v-btn icon="mdi-skip-previous" variant="text" size="small" :disabled="playlistIndex <= 0" @click="prevTrack" />
+                <!-- 播放模式切换 -->
+                <v-menu location="top" :close-on-content-click="true">
+                  <template #activator="{ props: menuProps }">
+                    <v-btn
+                      v-bind="menuProps"
+                      :icon="currentPlayModeMeta.icon"
+                      variant="text"
+                      size="small"
+                      :title="currentPlayModeMeta.label"
+                      aria-label="播放模式"
+                    />
+                  </template>
+                  <v-list density="compact" class="mode-menu">
+                    <v-list-item
+                      v-for="m in playModeOptions"
+                      :key="m.value"
+                      :active="playMode === m.value"
+                      :title="m.label"
+                      :prepend-icon="m.icon"
+                      @click="playMode = m.value; showQueue = false"
+                    >
+                      <template #append v-if="playMode === m.value">
+                        <v-icon size="16" color="primary">mdi-check</v-icon>
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+
+                <v-btn icon="mdi-skip-previous" variant="text" size="small" :disabled="!canPrev" @click="prevTrack" />
                 <v-btn
                   icon
                   size="large"
@@ -80,8 +108,50 @@
                 >
                   <v-icon size="28">{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
                 </v-btn>
-                <v-btn icon="mdi-skip-next" variant="text" size="small" :disabled="playlistIndex >= playlist.length - 1" @click="nextTrack" />
+                <v-btn icon="mdi-skip-next" variant="text" size="small" :disabled="!canNext" @click="nextTrack" />
+
+                <!-- 待播放队列 -->
+                <v-menu location="top" offset="10" :close-on-content-click="false" max-width="380">
+                  <template #activator="{ props: queueProps }">
+                    <v-btn
+                      v-bind="queueProps"
+                      icon="mdi-playlist-play"
+                      variant="text"
+                      size="small"
+                      title="待播放队列"
+                      aria-label="待播放队列"
+                    />
+                  </template>
+                  <div class="queue-popover-menu">
+                    <div class="queue-header">
+                      <span class="queue-title">待播放列表</span>
+                      <v-chip size="x-small" variant="flat" color="primary" label>{{ queueDisplayTracks.length }} 首</v-chip>
+                    </div>
+                    <div class="queue-scroll" v-if="queueDisplayTracks.length">
+                      <div
+                        v-for="(t, i) in queueDisplayTracks"
+                        :key="'q-' + t.track_id + '-' + i"
+                        class="queue-item"
+                        :class="{ 'queue-item--current': t.track_id === currentTrack.track_id }"
+                        @click="playTrack(t)"
+                      >
+                        <span class="queue-idx">{{ t._qi }}</span>
+                        <img v-if="t.cover_url" :src="t.cover_url" class="queue-thumb" alt="" />
+                        <div v-else class="queue-thumb-placeholder">
+                          <v-icon size="12" color="rgba(var(--v-theme-on-surface),0.25)">mdi-music-note</v-icon>
+                        </div>
+                        <div class="queue-meta">
+                          <div class="queue-name text-truncate">{{ t.title }}</div>
+                          <div class="queue-artist text-truncate">{{ t.artist }}</div>
+                        </div>
+                        <v-chip v-if="t.track_id === currentTrack.track_id" size="x-small" variant="flat" color="primary" class="queue-now">播放中</v-chip>
+                      </div>
+                    </div>
+                    <div v-else class="queue-empty">队列为空</div>
+                  </div>
+                </v-menu>
               </div>
+
           </div>
 
           <!-- 推荐流列表 -->
@@ -520,6 +590,50 @@ const sourceType = ref('liked')
 const customPlaylistId = ref('')
 const sortOrder = ref('desc')
 
+// ── 播放模式 ──
+const playMode = ref('sequential')  // sequential | random | weighted | repeat-one
+const playedIndices = ref(new Set())  // 随机模式已播索引
+const playHistoryStack = ref([])  // 随机模式播放历史栈 [index, ...]
+const showQueue = ref(false)  // 队列浮窗显隐
+
+const playModeOptions = [
+  { value: 'sequential', icon: 'mdi-arrow-right-bold', label: '顺序播放' },
+  { value: 'random', icon: 'mdi-shuffle-variant', label: '随机播放' },
+  { value: 'weighted', icon: 'mdi-chart-bell-curve', label: '智能推荐' },
+  { value: 'repeat-one', icon: 'mdi-repeat', label: '单曲循环' },
+]
+
+const currentPlayModeMeta = computed(() =>
+  playModeOptions.find(m => m.value === playMode.value) || playModeOptions[0]
+)
+
+// ── 待播放队列（根据模式计算展示顺序） ──
+const queueDisplayTracks = computed(() => {
+  if (!playlist.value.length) return []
+  const curIdx = playlistIndex.value
+  switch (playMode.value) {
+    case 'sequential':
+      // 从当前项开始展示全部
+      if (curIdx < 0) return playlist.value.map((t, i) => ({ ...t, _qi: i + 1 }))
+      return playlist.value.map((t, i) => ({ ...t, _qi: i + 1, _isCurrent: i === curIdx }))
+    case 'random':
+      // 展示已播历史 + 剩余未播池（不按 playlist 顺序）
+      const remaining = playlist.value
+        .map((t, i) => ({ ...t, _qi: i + 1 }))
+        .filter((_, i) => !playedIndices.value.has(i))
+      return remaining
+    case 'weighted':
+      // 加权随机无法预知，展示全部 playlist
+      return playlist.value.map((t, i) => ({ ...t, _qi: i + 1, _isCurrent: i === curIdx }))
+    case 'repeat-one':
+      // 仅当前歌曲
+      if (curIdx >= 0) return [{ ...playlist.value[curIdx], _qi: 1, _isCurrent: true }]
+      return []
+    default:
+      return []
+  }
+})
+
 const page = ref(1)
 const pageSize = ref(20)
 const totalPages = ref(1)
@@ -609,6 +723,25 @@ const skipStatusClass = computed(() => {
   return 'status-ok'
 })
 
+// ── 前一首/后一首可用性（根据播放模式） ──
+const canPrev = computed(() => {
+  if (!playlist.value.length) return false
+  switch (playMode.value) {
+    case 'repeat-one': return true
+    case 'random': return playHistoryStack.value.length > 0
+    default: return playlistIndex.value > 0
+  }
+})
+const canNext = computed(() => {
+  if (!playlist.value.length) return false
+  switch (playMode.value) {
+    case 'repeat-one': return true
+    case 'random': return true  // 随机模式总有下一首
+    case 'weighted': return true  // 加权随机总有下一首
+    default: return playlistIndex.value < playlist.value.length - 1
+  }
+})
+
 function startPlayTimer() {
   stopPlayTimer()
   playTimer.value = setInterval(() => {
@@ -636,6 +769,17 @@ function onTimeUpdate() {
 function onTrackEnded() {
   isPlaying.value = false
   stopPlayTimer()
+  if (playMode.value === 'repeat-one') {
+    // 单曲循环：seek 到开头重新播放
+    seekProgress(0)
+    if (audioRef.value) {
+      audioRef.value.currentTime = 0
+      audioRef.value.play().catch(() => {})
+      isPlaying.value = true
+      startPlayTimer()
+    }
+    return
+  }
   nextTrack()
 }
 
@@ -654,6 +798,20 @@ async function playTrack(track) {
   playElapsed.value = 0
   playedAccum.value = 0
   hasAudioSource.value = !!track.file_path
+
+  // 修复 BUG：自动定位 track 在 playlist 中的索引
+  const idx = playlist.value.findIndex(p => String(p.track_id) === String(track.track_id))
+  if (idx >= 0) playlistIndex.value = idx
+
+  // 随机模式：记录到历史栈
+  if (playMode.value === 'random' && idx >= 0) {
+    if (!playedIndices.value.has(idx)) {
+      playedIndices.value = new Set([...playedIndices.value, idx])
+    }
+    playHistoryStack.value.push(idx)
+    // 限制历史栈长度
+    if (playHistoryStack.value.length > 100) playHistoryStack.value = playHistoryStack.value.slice(-50)
+  }
 
   // 尝试加载音频源：优先本地文件流，否则用网易云流媒体代理
   const token = localStorage.getItem('token') || ''
@@ -696,17 +854,90 @@ async function togglePlay() {
 async function nextTrack() {
   if (!playlist.value.length) return
   if (currentTrack.track_id) await logPlayback(true)
-  if (playlistIndex.value < playlist.value.length - 1) {
-    playlistIndex.value++
-    playTrack(playlist.value[playlistIndex.value])
+
+  switch (playMode.value) {
+    case 'sequential':
+      if (playlistIndex.value < playlist.value.length - 1) {
+        playlistIndex.value++
+        playTrack(playlist.value[playlistIndex.value])
+      }
+      break
+    case 'random': {
+      // Fisher-Yates 洗牌逻辑：从未播池中随机选
+      const remaining = playlist.value
+        .map((t, i) => i)
+        .filter(i => !playedIndices.value.has(i))
+      if (remaining.length === 0) {
+        // 全部播完一轮，重置
+        playedIndices.value = new Set()
+        remaining.push(...playlist.value.map((_, i) => i))
+      }
+      const randIdx = remaining[Math.floor(Math.random() * remaining.length)]
+      playedIndices.value = new Set([...playedIndices.value, randIdx])
+      playHistoryStack.value.push(randIdx)
+      playlistIndex.value = randIdx
+      playTrack(playlist.value[randIdx])
+      break
+    }
+    case 'weighted': {
+      // 加权随机：preference_score 越高概率越大
+      const weights = playlist.value.map(t => Math.max(t.preference_score || 1, 1))
+      const totalWeight = weights.reduce((a, b) => a + b, 0)
+      let rand = Math.random() * totalWeight
+      for (let i = 0; i < playlist.value.length; i++) {
+        rand -= weights[i]
+        if (rand <= 0) {
+          playlistIndex.value = i
+          playTrack(playlist.value[i])
+          break
+        }
+      }
+      break
+    }
+    case 'repeat-one':
+      // 从头播放当前歌曲（与 onTrackEnded 中一致）
+      seekProgress(0)
+      if (audioRef.value) {
+        audioRef.value.currentTime = 0
+        audioRef.value.play().catch(() => {})
+      }
+      break
   }
 }
 
 async function prevTrack() {
-  // playTrack 内部自动上报上一首，此处不再重复 logPlayback
-  if (playlistIndex.value > 0) {
-    playlistIndex.value--
-    playTrack(playlist.value[playlistIndex.value])
+  if (!playlist.value.length) return
+  if (currentTrack.track_id) await logPlayback(true)
+
+  switch (playMode.value) {
+    case 'sequential':
+    case 'weighted':
+      if (playlistIndex.value > 0) {
+        playlistIndex.value--
+        playTrack(playlist.value[playlistIndex.value])
+      }
+      break
+    case 'random':
+      // 回退到历史栈上一首
+      if (playHistoryStack.value.length > 1) {
+        playHistoryStack.value.pop()  // 移除当前首
+        const prevIdx = playHistoryStack.value[playHistoryStack.value.length - 1]
+        playlistIndex.value = prevIdx
+        playTrack(playlist.value[prevIdx])
+      } else if (playHistoryStack.value.length === 1) {
+        // 回到第一首
+        const firstIdx = playHistoryStack.value[0]
+        playlistIndex.value = firstIdx
+        playTrack(playlist.value[firstIdx])
+      }
+      break
+    case 'repeat-one':
+      seekProgress(0)
+      if (audioRef.value) {
+        audioRef.value.currentTime = 0
+        audioRef.value.play().catch(() => {})
+      }
+      break
   }
 }
 
@@ -794,6 +1025,12 @@ function _cacheKey() {
   return `${sourceType.value}|${sortOrder.value}|${pid}`
 }
 
+function _resetPlayModeState() {
+  playedIndices.value = new Set()
+  playHistoryStack.value = []
+  showQueue.value = false
+}
+
 function _restoreFromCache(key) {
   const pages = recommendCache.get(key)
   if (!pages) return false
@@ -802,6 +1039,7 @@ function _restoreFromCache(key) {
   recommendTracks.value = cached.tracks
   playlist.value = cached.tracks
   playlistIndex.value = -1
+  _resetPlayModeState()
   totalTracks.value = cached.total
   totalPages.value = cached.total_pages
   return true
@@ -829,6 +1067,7 @@ async function _fetchTop50() {
     recommendTracks.value = mapped
     playlist.value = mapped
     playlistIndex.value = -1
+    _resetPlayModeState()
     totalTracks.value = mapped.length
     totalPages.value = 1
     page.value = 1
@@ -873,6 +1112,7 @@ async function fetchRecommend() {
       recommendTracks.value = body.tracks
       playlist.value = body.tracks
       playlistIndex.value = -1
+      _resetPlayModeState()
       totalTracks.value = body.total || body.tracks.length
       totalPages.value = body.total_pages || 1
       page.value = body.page || 1
@@ -1484,7 +1724,7 @@ onBeforeUnmount(() => {
 .source-col { display: flex; flex-direction: column; gap: 16px; }
 
 /* 播放器卡片 */
-.player-card { text-align: center; }
+.player-card { text-align: center; overflow: visible; }
 .player-main {
   display: flex !important; gap: 16px; align-items: stretch; margin-bottom: 14px;
   justify-content: center;
@@ -1578,7 +1818,115 @@ onBeforeUnmount(() => {
   height: 100%; background: rgb(var(--v-theme-primary)); border-radius: 2px;
   transition: width 0.25s linear; pointer-events: none;
 }
-.player-controls { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.player-controls { display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; }
+
+/* ── 播放模式菜单 ── */
+.mode-menu {
+  min-width: 160px;
+  background: rgba(var(--v-theme-surface), 0.95) !important;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+/* ── 队列浮窗 (v-menu 内嵌，Apple 风格) ── */
+.queue-popover-menu {
+  width: 360px;
+  max-width: 92vw;
+  max-height: 60vh;
+  background: rgba(var(--v-theme-surface), 0.98);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border-radius: 16px;
+  border: 0.5px solid rgba(var(--v-theme-on-surface), 0.15);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25), 0 0 0 0.5px rgba(255,255,255,0.02) inset;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.queue-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 0.5px solid rgba(var(--v-theme-on-surface), 0.10);
+}
+.queue-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgb(var(--v-theme-on-surface));
+}
+.queue-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px;
+}
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.queue-item:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.queue-item--current {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+.queue-idx {
+  width: 22px;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.queue-item--current .queue-idx {
+  color: rgb(var(--v-theme-primary));
+}
+.queue-thumb {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.queue-thumb-placeholder {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.queue-meta {
+  flex: 1;
+  min-width: 0;
+}
+.queue-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgb(var(--v-theme-on-surface));
+}
+.queue-artist {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  margin-top: 1px;
+}
+.queue-now {
+  flex-shrink: 0;
+}
+.queue-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
 
 /* 推荐流列表 */
 .recommend-list { flex: 1; min-height: 0; }
