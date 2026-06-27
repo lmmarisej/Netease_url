@@ -76,7 +76,7 @@ const routes = [
   {
     path: '/studio',
     name: 'StudioHub',
-    component: () => import('@/views/StudioHub.vue'),
+    component: () => import('@/views/ControlCenter.vue'),
     meta: { requiresAuth: true }
   },
   {
