@@ -414,7 +414,25 @@ defineExpose({ progressWrapRef })
 .track-artist-name { font-size: 0.72rem; color: var(--text-2); margin-top: 1px; }
 .track-chip { flex-shrink: 0; }
 
-/* 歌单源 Tab */
+/* ── 毛玻璃卡片（继承父组件 CSS 变量） ── */
+.glass-card {
+  background: var(--aero-bg);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--aero-border);
+  border-radius: var(--aero-radius);
+  box-shadow: var(--aero-shadow);
+  padding: 18px;
+  transition: border-color 0.3s;
+}
+.glass-card:hover { border-color: rgba(var(--v-theme-on-surface), 0.1); }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.card-title { font-weight: 700; font-size: 0.9rem; color: var(--text-1); }
+.card-badge {
+  font-size: 0.68rem; font-weight: 600; padding: 2px 10px; border-radius: 20px;
+  background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2);
+}
+
+/* ── 歌单源 Tab ── */
 .source-tabs { padding: 0 12px 8px; border-bottom: 1px solid var(--aero-border); }
 .source-tab-row { display: flex; gap: 2px; }
 .source-tab {

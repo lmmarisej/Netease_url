@@ -150,6 +150,21 @@ onMounted(loadWeights)
 </script>
 
 <style scoped>
+/* ── 毛玻璃卡片 ── */
+.glass-card {
+  background: var(--aero-bg, rgba(var(--v-theme-surface), 0.55));
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--aero-border, rgba(var(--v-theme-on-surface), 0.06));
+  border-radius: var(--aero-radius, 20px);
+  box-shadow: var(--aero-shadow, 0 4px 24px rgba(0,0,0,0.06));
+  padding: 18px;
+  transition: border-color 0.3s;
+}
+.glass-card:hover { border-color: rgba(var(--v-theme-on-surface), 0.1); }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.card-title { font-weight: 700; font-size: 0.9rem; color: var(--text-1, rgb(var(--v-theme-on-surface))); }
+
+/* ── 时段切换器 ── */
 .slot-switcher { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .slot-card {
   --slot-color: #888;

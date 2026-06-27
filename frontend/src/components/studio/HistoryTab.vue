@@ -92,6 +92,25 @@ onMounted(fetchHistory)
 </script>
 
 <style scoped>
+/* ── 毛玻璃卡片 ── */
+.glass-card {
+  background: var(--aero-bg, rgba(var(--v-theme-surface), 0.55));
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--aero-border, rgba(var(--v-theme-on-surface), 0.06));
+  border-radius: var(--aero-radius, 20px);
+  box-shadow: var(--aero-shadow, 0 4px 24px rgba(0,0,0,0.06));
+  padding: 18px;
+  transition: border-color 0.3s;
+}
+.glass-card:hover { border-color: rgba(var(--v-theme-on-surface), 0.1); }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.card-title { font-weight: 700; font-size: 0.9rem; color: var(--text-1, rgb(var(--v-theme-on-surface))); }
+.card-badge {
+  font-size: 0.68rem; font-weight: 600; padding: 2px 10px; border-radius: 20px;
+  background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2);
+}
+
+/* ── 历史表格 ── */
 .history-table-wrap { overflow-x: auto; }
 .history-header {
   display: flex; align-items: center; padding: 8px 12px;
