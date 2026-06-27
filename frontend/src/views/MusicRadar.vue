@@ -4,9 +4,31 @@
       <div class="header-icon">
         <v-icon size="28" color="#a78bfa">mdi-dna</v-icon>
       </div>
-      <div>
+      <div style="flex:1">
         <h1 class="page-title">全景音乐DNA谱图</h1>
         <p class="page-subtitle" v-if="!loading && !empty">基于 {{ trackCount }} 首喜欢的歌曲 * 10维声学与文化分析</p>
+      </div>
+      <div class="header-actions">
+        <template v-if="rebuildRunning">
+          <span class="rebuild-progress-text">{{ rebuildProgress }}%</span>
+          <v-progress-linear
+            :model-value="rebuildProgress" color="primary" height="4"
+            style="width:80px" rounded
+          />
+          <v-btn size="small" color="error" variant="tonal" @click="cancelRebuild">
+            <v-icon size="16" left>mdi-stop</v-icon>终止
+          </v-btn>
+        </template>
+        <v-btn
+          v-else
+          size="default" variant="tonal" color="primary"
+          prepend-icon="mdi-refresh"
+          :loading="rebuildLoading"
+          :disabled="rebuildLoading"
+          @click="triggerRebuild"
+        >
+          从我喜欢生成
+        </v-btn>
       </div>
     </div>
     <div v-if="loading" class="skeleton-grid">
@@ -18,8 +40,18 @@
     <div v-else-if="empty" class="empty-state">
       <div class="empty-icon-wrap"><v-icon size="72" color="#a78bfa">mdi-dna</v-icon></div>
       <h2 class="empty-title">暂无喜欢歌曲数据</h2>
-      <p class="empty-desc">去「音乐搜索」给喜欢的歌曲点个收藏<br/>解锁你的专属 DNA 谱图</p>
-      <v-btn color="primary" variant="outlined" prepend-icon="mdi-magnify" to="/search">去发现音乐</v-btn>
+      <p class="empty-desc">点击下方按钮，系统将从「我喜欢的音乐」歌单<br/>下载并分析歌曲，生成你的专属 DNA 谱图</p>
+      <v-btn
+        color="primary" variant="flat" size="large"
+        prepend-icon="mdi-refresh"
+        :loading="rebuildLoading"
+        :disabled="rebuildLoading"
+        @click="triggerRebuild"
+      >从我喜欢生成 DNA 谱图</v-btn>
+      <div v-if="rebuildRunning" class="rebuild-status mt-4">
+        <v-progress-linear :model-value="rebuildProgress" color="primary" height="6" rounded />
+        <span class="rebuild-status-text">{{ rebuildMessage || '分析中...' }}</span>
+      </div>
     </div>
     <template v-else>
       <div class="radar-layout">
@@ -29,8 +61,16 @@
               <v-icon size="20" color="#a78bfa">mdi-chart-bubble</v-icon>
               <span class="card-title">10维 DNA 雷达</span>
               <v-spacer/>
-              <span class="card-badge">实时分析</span>
+              <template v-if="rebuildRunning">
+                <span class="rebuild-progress-text">{{ rebuildProgress }}%</span>
+                <v-progress-linear
+                  :model-value="rebuildProgress" color="primary" height="3"
+                  style="max-width:60px" rounded
+                />
+              </template>
+              <span v-else class="card-badge">实时分析</span>
             </div>
+            <div v-if="rebuildRunning && rebuildMessage" class="rebuild-msg">{{ rebuildMessage }}</div>
             <div class="chart-wrap">
               <v-chart :option="radarOption" autoresize style="width:100%;height:100%"/>
             </div>
@@ -147,7 +187,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from "vue"
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from "vue"
 import { useTheme } from "vuetify"
 import { use } from "echarts/core"
 import { RadarChart } from "echarts/charts"
@@ -168,6 +208,14 @@ const error = ref("")
 const empty = ref(false)
 const trackCount = ref(0)
 const hoveredDim = ref(null)
+
+// ── DNA 重建状态 ──
+const rebuildTaskId = ref("")
+const rebuildProgress = ref(0)
+const rebuildMessage = ref("")
+const rebuildLoading = ref(false)
+const rebuildRunning = computed(() => !!rebuildTaskId.value)
+let _rebuildPollTimer = null
 
 const radarData = reactive({
   tempo: 0, energy: 0, brightness: 0, contrast: 0,
@@ -268,6 +316,90 @@ function scoreClass(val) {
   return "score-low"
 }
 
+// ── DNA 重建 ──
+async function triggerRebuild() {
+  rebuildLoading.value = true
+  try {
+    const u = username.value
+    const res = await api.post(`/api/user/${u}/taste-rebuild`)
+    const body = res?.data
+    if (body?.success && body.data?.task_id) {
+      rebuildTaskId.value = body.data.task_id
+      rebuildProgress.value = 0
+      rebuildMessage.value = "正在获取喜欢列表..."
+      startPollingRebuild()
+    } else {
+      window.__snackbar?.("重建启动失败", "error")
+    }
+  } catch (e) {
+    window.__snackbar?.("重建失败: " + (e.message || "网络错误"), "error")
+  } finally {
+    rebuildLoading.value = false
+  }
+}
+
+function startPollingRebuild() {
+  stopPollingRebuild()
+  _rebuildPollTimer = setInterval(pollRebuildTask, 1500)
+}
+
+function stopPollingRebuild() {
+  if (_rebuildPollTimer) { clearInterval(_rebuildPollTimer); _rebuildPollTimer = null }
+}
+
+async function pollRebuildTask() {
+  if (!rebuildTaskId.value) { stopPollingRebuild(); return }
+  try {
+    const res = await api.get(`/api/tasks/${rebuildTaskId.value}`)
+    const task = res?.data?.data
+    if (!task) return
+    rebuildProgress.value = task.progress ?? 0
+    rebuildMessage.value = task.message ?? ""
+    if (task.status === "completed") {
+      rebuildTaskId.value = ""
+      stopPollingRebuild()
+      window.__snackbar?.("DNA 谱图重建完成！", "success")
+      await loadData()
+    } else if (task.status === "failed") {
+      rebuildTaskId.value = ""
+      stopPollingRebuild()
+      window.__snackbar?.("重建失败: " + (task.error || "未知错误"), "error")
+    } else if (task.status === "cancelled") {
+      rebuildTaskId.value = ""
+      stopPollingRebuild()
+    }
+  } catch {
+    // 静默处理轮询错误
+  }
+}
+
+async function cancelRebuild() {
+  if (!rebuildTaskId.value) return
+  try {
+    await api.post(`/api/tasks/${rebuildTaskId.value}/cancel`)
+    rebuildTaskId.value = ""
+    stopPollingRebuild()
+    window.__snackbar?.("已终止重建", "info")
+  } catch (e) {
+    window.__snackbar?.("终止失败: " + (e.message || ""), "error")
+  }
+}
+
+// ── 检查是否有正在运行的重建任务 ──
+async function checkRunningRebuild() {
+  try {
+    const res = await api.get("/api/tasks?type=dna_rebuild&status=running&limit=1")
+    const tasks = res?.data?.data || res?.data || []
+    if (Array.isArray(tasks) && tasks.length > 0) {
+      const task = tasks[0]
+      rebuildTaskId.value = task.task_id
+      rebuildProgress.value = task.progress ?? 0
+      rebuildMessage.value = task.message ?? ""
+      startPollingRebuild()
+    }
+  } catch { /* ignore */ }
+}
+
 async function loadData() {
   loading.value = true; error.value = ""
   try {
@@ -320,7 +452,11 @@ function playTrack(track) {
   else window.__snackbar?.("音频播放器未就绪", "warning")
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  loadData()
+  checkRunningRebuild()
+})
+onBeforeUnmount(() => stopPollingRebuild())
 </script>
 
 <style scoped>
@@ -353,6 +489,7 @@ onMounted(() => loadData())
 }
 
 .page-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .header-icon {
   width: 48px; height: 48px; border-radius: 14px;
   background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(167,139,250,0.12));
@@ -389,6 +526,21 @@ onMounted(() => loadData())
 .card-badge.accent { background: rgba(245,158,11,0.12); color: #fbbf24; border-color: rgba(245,158,11,0.25); }
 .card-badge.info { background: rgba(6,182,212,0.12); color: #22d3ee; border-color: rgba(6,182,212,0.25); }
 .card-empty { color: var(--text-tertiary); text-align: center; padding: 24px 0; font-size: 0.85rem; }
+
+/* ── 重建状态 ── */
+.rebuild-progress-text {
+  font-size: 0.75rem; font-weight: 700; color: #a78bfa; font-variant-numeric: tabular-nums;
+  min-width: 28px; text-align: right;
+}
+.rebuild-msg {
+  font-size: 0.72rem; color: var(--text-secondary); text-align: center;
+  padding: 4px 0 8px; animation: fadeUp 0.3s ease;
+}
+.rebuild-status { width: 100%; max-width: 320px; margin: 0 auto; }
+.rebuild-status-text {
+  display: block; text-align: center; margin-top: 8px;
+  font-size: 0.8rem; color: var(--text-secondary);
+}
 
 .radar-layout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
 .left-col { display: flex; flex-direction: column; }
