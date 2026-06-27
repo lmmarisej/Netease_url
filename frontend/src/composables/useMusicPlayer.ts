@@ -109,15 +109,20 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     if (playTimer) { clearInterval(playTimer); playTimer = null }
   }
 
-  // ── seek 锁：流媒体代理不支持 Range，防止 timeupdate 覆盖手动 seek ──
-  const seekLocked = ref(false)
-  let _seekLockTimer: ReturnType<typeof setTimeout> | null = null
+  // ── seek 偏移追踪：流媒体不支持 Range，用偏移量保持视觉位置 ──
+  const seekOffset = ref(0)
 
   // ── 音频事件 ──
   function onTimeUpdate() {
-    if (audioRef.value && !seekLocked.value) {
-      playElapsed.value = audioRef.value.currentTime
+    if (audioRef.value) {
+      const real = audioRef.value.currentTime
       currentTrack.duration = audioRef.value.duration || currentTrack.duration
+      if (seekOffset.value !== 0) {
+        playElapsed.value = real + seekOffset.value
+        if (real >= playElapsed.value) seekOffset.value = 0
+      } else {
+        playElapsed.value = real
+      }
     }
   }
 
@@ -143,6 +148,7 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     currentTrack.duration = t.total_duration || 180
     playElapsed.value = 0
     playedAccum.value = 0
+    seekOffset.value = 0
     hasAudioSource.value = !!t.file_path
 
     const token = localStorage.getItem('token') || ''
@@ -196,13 +202,13 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
 
   function seekProgress(ratio: number) {
     const target = ratio * currentTrack.duration
-    playElapsed.value = target
-    // 锁定 onTimeUpdate，防止流媒体（不支持 Range）覆盖回来
-    seekLocked.value = true
-    if (_seekLockTimer) clearTimeout(_seekLockTimer)
-    _seekLockTimer = setTimeout(() => { seekLocked.value = false }, 600)
-    if (audioRef.value) {
-      try { audioRef.value.currentTime = target } catch { /* 忽略 */ }
+    if (audioRef.value && audioRef.value.src) {
+      seekOffset.value = target - (audioRef.value.currentTime || 0)
+      playElapsed.value = target
+      try { audioRef.value.currentTime = target } catch { /* 流媒体忽略 */ }
+    } else {
+      playElapsed.value = target
+      seekOffset.value = 0
     }
   }
 

@@ -625,14 +625,23 @@ function stopPlayTimer() {
   if (playTimer.value) { clearInterval(playTimer.value); playTimer.value = null }
 }
 
-// ── seek 锁：流媒体代理不支持 Range，设置 currentTime 后 timeupdate 会覆盖回来 ──
-const seekLocked = ref(false)
-let _seekLockTimer = null
+// ── seek 偏移追踪：流媒体不支持 Range，用户点击后用偏移量保持视觉位置 ──
+const seekOffset = ref(0)       // target - realCurrentTime
 
 function onTimeUpdate() {
-  if (audioRef.value && !seekLocked.value) {
-    playElapsed.value = audioRef.value.currentTime
+  if (audioRef.value) {
+    const real = audioRef.value.currentTime
     currentTrack.duration = audioRef.value.duration || currentTrack.duration
+    if (seekOffset.value !== 0) {
+      // 用户手动 seek 过，保持偏移量
+      playElapsed.value = real + seekOffset.value
+      // 当 real 追上 target 时自动归零
+      if (real >= playElapsed.value) {
+        seekOffset.value = 0
+      }
+    } else {
+      playElapsed.value = real
+    }
   }
 }
 
@@ -657,6 +666,7 @@ async function playTrack(track) {
   currentTrack.duration = 180  // 默认 3 分钟，无本地文件时用于模拟进度
   playElapsed.value = 0
   playedAccum.value = 0
+  seekOffset.value = 0
   hasAudioSource.value = !!track.file_path
 
   // 尝试加载音频源：优先本地文件流，否则用网易云流媒体代理
@@ -989,14 +999,14 @@ function seekProgress(e) {
   const rect = wrap.getBoundingClientRect()
   const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const target = ratio * currentTrack.duration
-  playElapsed.value = target
-  // 锁定 onTimeUpdate，防止流媒体（不支持 Range）覆盖回来
-  seekLocked.value = true
-  clearTimeout(_seekLockTimer)
-  _seekLockTimer = setTimeout(() => { seekLocked.value = false }, 600)
-  // 尝试 seek 音频（本地文件有效，流媒体会被忽略）
-  if (audioRef.value) {
-    try { audioRef.value.currentTime = target } catch { /* 忽略 */ }
+  // 流媒体不支持 Range → 用偏移量保持视觉位置
+  if (audioRef.value && audioRef.value.src) {
+    seekOffset.value = target - (audioRef.value.currentTime || 0)
+    playElapsed.value = target
+    try { audioRef.value.currentTime = target } catch { /* 流媒体忽略 */ }
+  } else {
+    playElapsed.value = target
+    seekOffset.value = 0
   }
 }
 
