@@ -493,6 +493,10 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'f
 app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIR, 'assets'), static_url_path='/assets')
 app.json.ensure_ascii = False
 
+# 初始化核心数据库表（music_tracks / track_audio_features / track_tags / user_track_behaviors）
+from music_processor.database import init_database
+init_database(_PROJECT_ROOT / 'config' / 'music_vault.db')
+
 api_service = MusicAPIService(config)
 
 
