@@ -70,18 +70,18 @@
             </div>
             <!-- 控制按钮 -->
             <div class="player-controls">
-              <v-btn icon="mdi-skip-previous" variant="text" size="small" :disabled="playlistIndex <= 0" @click="prevTrack" />
-              <v-btn
-                icon
-                size="large"
-                :color="isPlaying ? 'primary' : undefined"
-                variant="flat"
-                @click="togglePlay"
-              >
-                <v-icon size="28">{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
-              </v-btn>
-              <v-btn icon="mdi-skip-next" variant="text" size="small" :disabled="playlistIndex >= playlist.length - 1" @click="nextTrack" />
-            </div>
+                <v-btn icon="mdi-skip-previous" variant="text" size="small" :disabled="playlistIndex <= 0" @click="prevTrack" />
+                <v-btn
+                  icon
+                  size="large"
+                  :color="isPlaying ? 'primary' : undefined"
+                  variant="flat"
+                  @click="togglePlay"
+                >
+                  <v-icon size="28">{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+                </v-btn>
+                <v-btn icon="mdi-skip-next" variant="text" size="small" :disabled="playlistIndex >= playlist.length - 1" @click="nextTrack" />
+              </div>
           </div>
 
           <!-- 推荐流列表 -->
@@ -519,6 +519,7 @@ const recommendLoading = ref(false)
 const sourceType = ref('liked')
 const customPlaylistId = ref('')
 const sortOrder = ref('desc')
+
 const page = ref(1)
 const pageSize = ref(20)
 const totalPages = ref(1)
@@ -635,7 +636,6 @@ function onTimeUpdate() {
 function onTrackEnded() {
   isPlaying.value = false
   stopPlayTimer()
-  // logPlayback 由 playTrack / nextTrack 统一处理，避免重复
   nextTrack()
 }
 
@@ -694,7 +694,8 @@ async function togglePlay() {
 }
 
 async function nextTrack() {
-  // playTrack 内部自动上报上一首，此处不再重复 logPlayback
+  if (!playlist.value.length) return
+  if (currentTrack.track_id) await logPlayback(true)
   if (playlistIndex.value < playlist.value.length - 1) {
     playlistIndex.value++
     playTrack(playlist.value[playlistIndex.value])

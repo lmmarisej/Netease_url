@@ -175,6 +175,7 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   }
 
   function nextTrack() {
+    if (!playlist.value.length) return
     if (currentTrack.track_id) logPlayback(true)
     if (playlistIndex.value < playlist.value.length - 1) {
       playlistIndex.value++
