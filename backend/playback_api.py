@@ -1451,10 +1451,14 @@ def _async_download_and_score(
                     artist = track.artist
                     logger.info(f"[Async] 开始处理: {title} - {artist} (id={song_id})")
 
-                    # Step 1: 获取下载链接
-                    download_url = url_v1(song_id, "exhigh", cookies)
-                    if not download_url:
+                    # Step 1: 获取下载链接（url_v1 返回完整 JSON，需提取 data[0].url）
+                    url_resp = url_v1(song_id, "exhigh", cookies)
+                    if not url_resp:
                         logger.warning(f"[Async] 无法获取下载链接: {title}")
+                        continue
+                    download_url = url_resp.get('data', [{}])[0].get('url', '')
+                    if not download_url:
+                        logger.warning(f"[Async] 下载链接为空: {title}")
                         continue
 
                     # Step 2: CAS 下载存储
