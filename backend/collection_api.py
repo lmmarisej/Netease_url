@@ -146,6 +146,23 @@ def create_collection(name: str) -> Dict[str, Any]:
     return {"id": cid, "name": name.strip(), "track_count": 0}
 
 
+def _find_collection_by_name(name: str) -> Optional[Dict[str, Any]]:
+    """按名称查找当前用户的集合，找不到返回 None"""
+    username = _get_username()
+    conn = sqlite3.connect(_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT id, name, "
+        "(SELECT COUNT(*) FROM collection_tracks WHERE collection_id = collections.id) AS track_count "
+        "FROM collections WHERE user_id = ? AND name = ?",
+        (username, name),
+    ).fetchone()
+    conn.close()
+    if row:
+        return {"id": row["id"], "name": row["name"], "track_count": row["track_count"]}
+    return None
+
+
 def delete_collection(collection_id: int) -> bool:
     username = _get_username()
     conn = sqlite3.connect(_DB_PATH)
@@ -158,6 +175,19 @@ def delete_collection(collection_id: int) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+
+def rename_collection(collection_id: int, new_name: str) -> bool:
+    username = _get_username()
+    conn = sqlite3.connect(_DB_PATH)
+    cur = conn.execute(
+        "UPDATE collections SET name = ? WHERE id = ? AND user_id = ?",
+        (new_name.strip(), collection_id, username),
+    )
+    updated = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def add_track_to_collection(collection_id: int, track_id: str, title: str = "", artist: str = "") -> bool:
@@ -582,6 +612,35 @@ def analyze_playlist(playlist_id: str) -> Dict[str, Any]:
     conn.commit()
     conn.close()
 
+    # ── 自动创建对应集合（如已存在则跳过） ──
+    collection_name = name
+    existing_col = _find_collection_by_name(collection_name)
+    if existing_col is None:
+        new_col = create_collection(collection_name)
+        cid = new_col["id"]
+    else:
+        cid = existing_col["id"]
+
+    # 添加歌单中所有歌曲到集合（批量插入）
+    added = 0
+    if raw_tracks:
+        conn2 = sqlite3.connect(_DB_PATH)
+        for t in raw_tracks:
+            tid = str(t.get("id", ""))
+            tname = t.get("name", "")
+            tartist = "/".join(a.get("name", "") for a in t.get("ar", []))
+            if tid:
+                try:
+                    conn2.execute(
+                        "INSERT OR IGNORE INTO collection_tracks (collection_id, track_id, title, artist) VALUES (?, ?, ?, ?)",
+                        (cid, tid, tname, tartist),
+                    )
+                    added += 1
+                except Exception:
+                    pass
+        conn2.commit()
+        conn2.close()
+
     return {
         "playlist_id": str(pid),
         "name": name,
@@ -590,6 +649,8 @@ def analyze_playlist(playlist_id: str) -> Dict[str, Any]:
         "radar": radar["radar"],
         "count": radar["count"],
         "top_tracks": radar["top_tracks"],
+        "collection_id": cid,
+        "collection_added": added,
     }
 
 
@@ -692,6 +753,20 @@ def register_collection_routes(app):
             ok = delete_collection(collection_id)
             if ok:
                 return {"success": True, "message": "已删除"}
+            return {"success": False, "message": "集合不存在"}, 404
+        except Exception as e:
+            return {"success": False, "message": str(e)}, 500
+
+    @app.route("/api/v3/collections/<int:collection_id>", methods=["PATCH"])
+    def api_rename_collection(collection_id):
+        try:
+            data = request.get_json(silent=True) or {}
+            name = data.get("name", "").strip()
+            if not name:
+                return {"success": False, "message": "名称不能为空"}, 400
+            ok = rename_collection(collection_id, name)
+            if ok:
+                return {"success": True, "message": "已重命名"}
             return {"success": False, "message": "集合不存在"}, 404
         except Exception as e:
             return {"success": False, "message": str(e)}, 500

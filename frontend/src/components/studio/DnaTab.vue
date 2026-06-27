@@ -58,14 +58,48 @@
           </div>
         </div>
         <div class="dna-right">
-          <div class="glass-card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;gap:12px">
-            <v-icon size="40" color="#f59e0b">mdi-fire</v-icon>
-            <span style="font-size:0.9rem;color:var(--text-2);text-align:center">
+          <div class="glass-card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px;gap:10px;padding:14px">
+            <v-icon size="32" color="#f59e0b">mdi-fire</v-icon>
+            <span style="font-size:0.8rem;color:var(--text-2);text-align:center">
               TOP 50 共鸣单曲已迁移至<br/>「发现音乐 → ⭐ TOP 50」
             </span>
-            <v-btn size="small" variant="tonal" color="warning" prepend-icon="mdi-arrow-right" @click="$emit('goDiscoverTop50')">
+            <v-btn size="x-small" variant="tonal" color="warning" prepend-icon="mdi-arrow-right" @click="$emit('goDiscoverTop50')">
               立即查看
             </v-btn>
+          </div>
+
+          <!-- 歌单雷达解析 -->
+          <div class="glass-card playlist-section" style="margin-top:14px">
+            <div class="section-mini-header">
+              <v-icon size="16" color="#f59e0b">mdi-radar</v-icon>
+              <span>歌单雷达解析</span>
+            </div>
+            <div class="playlist-input-row">
+              <v-text-field
+                v-model="playlistUrl"
+                label="歌单链接或ID"
+                variant="solo-filled"
+                density="compact"
+                hide-details
+                placeholder="输入歌单链接或ID"
+                @keyup.enter="triggerPlaylistAnalysis"
+              />
+              <v-btn variant="flat" color="warning" size="small" icon="mdi-magnify" :loading="playlistAnalyzing" :disabled="!playlistUrl.trim()" @click="triggerPlaylistAnalysis" />
+            </div>
+            <v-alert v-if="playlistError" type="error" variant="tonal" density="compact" closable class="mt-2 mb-0" @click:close="playlistError=''">{{ playlistError }}</v-alert>
+            <div v-for="pa in playlistAnalyses" :key="pa.playlist_id" class="analysis-row">
+              <img v-if="pa.cover_url" :src="pa.cover_url" class="analysis-cover" alt="" />
+              <div v-else class="analysis-cover-placeholder">
+                <v-icon size="16" color="rgba(var(--v-theme-on-surface),0.2)">mdi-playlist-music</v-icon>
+              </div>
+              <div class="analysis-info">
+                <div class="analysis-name">{{ pa.name }}</div>
+                <div class="analysis-meta">{{ pa.track_count }} 首 · #{{ pa.playlist_id }}</div>
+              </div>
+              <div class="analysis-mini-radar">
+                <v-chart :option="makeMiniRadarOption(pa.radar)" autoresize style="width:100%;height:100%" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -78,80 +112,55 @@
     </div>
     <div class="collection-grid" v-if="collections.length">
       <div v-for="col in collections" :key="col.id" class="glass-card collection-card">
-        <div class="card-header">
-          <span class="card-title">{{ col.name }}</span>
+        <div class="collection-header">
+          <v-icon size="16" color="#a78bfa" class="col-header-icon">mdi-folder-music-outline</v-icon>
+          <span
+            v-if="col._editing === undefined || col._editing === false"
+            class="col-title"
+            @dblclick.stop="startRename(col)"
+            title="双击修改名称"
+          >{{ col.name }}</span>
+          <v-text-field
+            v-else
+            v-model="col._editName"
+            density="compact"
+            variant="plain"
+            hide-details
+            class="rename-input"
+            autofocus
+            @keyup.enter="finishRename(col)"
+            @blur="finishRename(col)"
+            @keyup.escape="col._editing = false"
+          />
           <v-spacer />
-          <v-chip size="x-small" variant="flat" color="rgba(var(--v-theme-on-surface),0.08)" class="track-count-chip">{{ col.track_count }} 首</v-chip>
-          <v-btn v-if="col._radar && col._radarCount > 0" icon="mdi-refresh" size="x-small" variant="text" color="primary" @click="genColRadar(col)" title="重新生成" />
-          <v-btn icon="mdi-delete-outline" size="x-small" variant="text" color="error" @click="deleteCol(col.id)" />
+          <v-btn v-if="col._radar && col._radarCount > 0" icon="mdi-refresh" size="x-small" variant="text" color="primary" density="compact" @click="genColRadar(col)" title="重新生成" />
+          <v-btn icon="mdi-delete-outline" size="x-small" variant="text" color="error" density="compact" @click="deleteCol(col.id)" />
         </div>
-        <div v-if="col._radar && col._radarCount > 0" class="mini-chart-wrap">
+        <div class="col-track-count">{{ col.track_count }} 首</div>
+        <div v-if="col._radar && col._radarCount > 0" class="mini-radar-box">
           <v-chart :option="makeMiniRadarOption(col._radar)" autoresize style="width:100%;height:100%" />
           <div v-if="col._pendingCount > 0" class="pending-hint">
-            <v-icon size="14" color="#f59e0b">mdi-progress-download</v-icon>
-            <span>{{ col._radarCount }}首已分析 · {{ col._pendingCount }}首后台下载中</span>
+            <v-icon size="12" color="#f59e0b">mdi-progress-download</v-icon>
+            <span>{{ col._radarCount }}首已分析 · {{ col._pendingCount }}首下载中</span>
           </div>
         </div>
-        <div v-else-if="col._radar && col._pendingCount > 0" class="mini-chart-wrap mini-chart-empty">
-          <v-progress-circular indeterminate size="20" width="2" color="primary" />
-          <span style="font-size:0.7rem;color:var(--text-3)">{{ col._pendingCount }}首后台下载分析中<br/>完成后点击上方重新生成</span>
+        <div v-else-if="col._radar && col._pendingCount > 0" class="mini-radar-box mini-radar-empty">
+          <v-progress-circular indeterminate size="22" width="2" color="primary" />
+          <span class="empty-hint">{{ col._pendingCount }}首后台下载中<br/>完成后点击重新生成</span>
         </div>
-        <div v-else-if="col._radar" class="mini-chart-wrap mini-chart-empty">
-          <v-icon size="20" color="rgba(var(--v-theme-on-surface),0.2)">mdi-chart-bubble</v-icon>
-          <span style="font-size:0.7rem;color:var(--text-3)">暂无分析数据</span>
+        <div v-else-if="col._radar" class="mini-radar-box mini-radar-empty">
+          <v-icon size="22" color="rgba(var(--v-theme-on-surface),0.12)">mdi-chart-bubble</v-icon>
+          <span class="empty-hint">暂无分析数据</span>
         </div>
-        <div v-else-if="col.track_count > 0" class="mini-chart-wrap mini-chart-empty">
-          <v-btn variant="tonal" size="small" color="primary" prepend-icon="mdi-chart-bubble" :loading="col._loading" @click="genColRadar(col)">生成雷达</v-btn>
+        <div v-else-if="col.track_count > 0" class="mini-radar-box mini-radar-empty">
+          <v-btn variant="tonal" size="small" color="primary" prepend-icon="mdi-chart-bubble" :loading="col._loading" density="compact" @click="genColRadar(col)">生成雷达</v-btn>
         </div>
-        <div v-else class="mini-chart-wrap mini-chart-empty">
-          <v-icon size="24" color="rgba(var(--v-theme-on-surface),0.15)">mdi-music-note-off</v-icon>
-          <span style="font-size:0.7rem;color:var(--text-3)">暂无歌曲</span>
+        <div v-else class="mini-radar-box mini-radar-empty">
+          <v-icon size="22" color="rgba(var(--v-theme-on-surface),0.08)">mdi-music-note-off</v-icon>
+          <span class="empty-hint">暂无歌曲</span>
         </div>
         <div v-if="col._topTracks?.length" class="top-tracks-mini">
           <div class="top-track-row" v-for="(t, i) in col._topTracks.slice(0, 3)" :key="i">
-            <span class="top-track-idx">{{ i + 1 }}</span>
-            <span class="top-track-name text-truncate">{{ t.title }}</span>
-            <span class="top-track-artist text-truncate">{{ t.artist }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── 歌单解析 ── -->
-    <div class="section-header">
-      <v-icon size="20" color="#f59e0b">mdi-radar</v-icon>
-      <span>歌单雷达解析</span>
-    </div>
-    <div class="glass-card playlist-analyzer">
-      <div class="playlist-input-row">
-        <v-text-field
-          v-model="playlistUrl"
-          label="输入歌单 ID 或链接"
-          variant="outlined"
-          density="compact"
-          hide-details
-          placeholder="https://music.163.com/playlist?id=123456"
-          @keyup.enter="triggerPlaylistAnalysis"
-        />
-        <v-btn variant="flat" color="warning" :loading="playlistAnalyzing" :disabled="!playlistUrl.trim()" @click="triggerPlaylistAnalysis">
-          <v-icon left>mdi-magnify</v-icon> 解析
-        </v-btn>
-      </div>
-      <v-alert v-if="playlistError" type="error" variant="tonal" density="compact" closable class="mt-3" @click:close="playlistError=''">{{ playlistError }}</v-alert>
-      <!-- 解析结果卡片 -->
-      <div v-for="pa in playlistAnalyses" :key="pa.playlist_id" class="glass-card analysis-card mt-3">
-        <div class="analysis-card-inner">
-          <img v-if="pa.cover_url" :src="pa.cover_url" class="analysis-cover" alt="" />
-          <div class="analysis-info">
-            <div class="analysis-name">{{ pa.name }}</div>
-            <div class="analysis-meta">{{ pa.track_count }} 首 · playlist #{{ pa.playlist_id }}</div>
-          </div>
-        </div>
-        <div class="mini-chart-wrap mini-chart-analysis">
-          <v-chart :option="makeMiniRadarOption(pa.radar)" autoresize style="width:100%;height:100%" />
-        </div>
-        <div v-if="pa.top_tracks?.length" class="top-tracks-mini">
-          <div class="top-track-row" v-for="(t, i) in pa.top_tracks.slice(0, 3)" :key="i">
             <span class="top-track-idx">{{ i + 1 }}</span>
             <span class="top-track-name text-truncate">{{ t.title }}</span>
             <span class="top-track-artist text-truncate">{{ t.artist }}</span>
@@ -188,6 +197,7 @@ function _authHeaders() {
 async function _apiGet(url) { return axios.get(url, { headers: _authHeaders() }) }
 async function _apiPost(url, data) { return axios.post(url, data, { headers: _authHeaders() }) }
 async function _apiDelete(url) { return axios.delete(url, { headers: _authHeaders() }) }
+async function _apiPatch(url, data) { return axios.patch(url, data, { headers: _authHeaders() }) }
 
 const api = createAuthAxios()
 use([CanvasRenderer, RadarChart, TooltipComponent, LegendComponent])
@@ -463,6 +473,28 @@ async function deleteCol(id) {
   }
 }
 
+// ── 双击重命名 ──
+function startRename(col) {
+  col._editing = true
+  col._editName = col.name
+}
+async function finishRename(col) {
+  const name = (col._editName || '').trim()
+  col._editing = false
+  if (!name || name === col.name) return
+  try {
+    const res = await _apiPatch(`/api/v3/collections/${col.id}`, { name })
+    if (res?.success) {
+      col.name = name
+      window.__snackbar?.('已重命名', 'success')
+    } else {
+      window.__snackbar?.(res?.message || '重命名失败', 'error')
+    }
+  } catch (e) {
+    window.__snackbar?.('重命名失败: ' + (e.message || ''), 'error')
+  }
+}
+
 // ── 歌单解析 ──
 async function triggerPlaylistAnalysis() {
   const raw = playlistUrl.value.trim()
@@ -477,8 +509,9 @@ async function triggerPlaylistAnalysis() {
     const res = await _apiPost('/api/v3/playlist/analyze', { playlist_id: pid })
     const data = res?.data
     if (data.success) {
-      window.__snackbar?.('歌单解析完成！', 'success')
+      window.__snackbar?.(`歌单解析完成！已自动加入「${data.data.name || pid}」集合`, 'success')
       await loadPlaylistAnalyses()
+      await loadCollections()
     } else {
       playlistError.value = data.message || '解析失败'
     }
@@ -594,16 +627,48 @@ function makeMiniRadarOption(radarArr) {
 .collection-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px;
 }
-.collection-card { padding: 12px; }
-.track-count-chip { font-size: 0.65rem !important; height: 20px !important; }
-.mini-chart-wrap { width: 100%; height: 120px; margin: 2px 0; }
-.mini-chart-loading, .mini-chart-empty {
+.collection-card { padding: 14px; }
+/* ── 集合卡片头部 ── */
+.collection-header {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.col-header-icon { flex-shrink: 0; opacity: 0.7; }
+.col-title {
+  font-weight: 700; font-size: 0.82rem; color: var(--text-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: text; user-select: none;
+}
+.col-title:hover { opacity: 0.8; }
+.rename-input {
+  max-width: 110px; font-size: 0.75rem;
+}
+.rename-input :deep(.v-field) {
+  border-radius: 4px; padding: 0 4px; min-height: 28px;
+}
+.rename-input :deep(.v-field__input) {
+  padding-top: 2px; padding-bottom: 2px; min-height: 22px;
+}
+.col-track-count {
+  font-size: 0.65rem; color: var(--text-3); margin-bottom: 6px;
+  padding-left: 22px; /* 对齐图标右侧 */
+}
+/* ── 迷你雷达容器 ── */
+.mini-radar-box {
+  width: 100%; height: 120px; margin: 2px 0;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+  border-radius: 10px; position: relative;
+}
+.mini-radar-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
 }
+.empty-hint {
+  font-size: 0.68rem; color: var(--text-3); text-align: center; line-height: 1.4;
+}
 .pending-hint {
-  display: flex; align-items: center; gap: 4px; margin-top: 4px;
-  font-size: 0.68rem; color: #f59e0b;
-  background: rgba(245,158,11,0.08); border-radius: 8px; padding: 4px 8px;
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 3px; white-space: nowrap;
+  font-size: 0.62rem; color: #f59e0b;
+  background: rgba(245,158,11,0.12); border-radius: 6px; padding: 2px 7px;
 }
 
 /* ── TOP 曲目 ── */
@@ -618,13 +683,30 @@ function makeMiniRadarOption(radarArr) {
 .top-track-artist { color: var(--text-3); max-width: 80px; }
 
 /* ── 歌单解析 ── */
-.playlist-input-row { display: flex; gap: 10px; align-items: flex-start; }
+.playlist-section { padding: 14px; }
+.section-mini-header {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+  font-size: 0.82rem; font-weight: 700; color: var(--text-1);
+}
+.playlist-input-row { display: flex; gap: 8px; align-items: center; }
 .playlist-input-row :deep(.v-text-field) { flex: 1; }
-.analysis-card { margin-bottom: 12px; }
-.analysis-card-inner { display: flex; align-items: center; gap: 10px; }
-.analysis-cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.analysis-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.05);
+  transition: background 0.15s;
+}
+.analysis-row:first-of-type { margin-top: 8px; }
+.analysis-row:hover { background: rgba(var(--v-theme-on-surface), 0.02); }
+.analysis-cover {
+  width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+}
+.analysis-cover-placeholder {
+  width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  display: flex; align-items: center; justify-content: center;
+}
 .analysis-info { flex: 1; min-width: 0; }
-.analysis-name { font-size: 0.85rem; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.analysis-meta { font-size: 0.7rem; color: var(--text-3); margin-top: 2px; }
-.mini-chart-analysis { height: 140px; }
+.analysis-name { font-size: 0.78rem; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.analysis-meta { font-size: 0.66rem; color: var(--text-3); margin-top: 1px; }
+.analysis-mini-radar { width: 72px; height: 72px; flex-shrink: 0; }
 </style>
