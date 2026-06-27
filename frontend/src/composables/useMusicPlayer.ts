@@ -109,9 +109,13 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     if (playTimer) { clearInterval(playTimer); playTimer = null }
   }
 
+  // ── seek 锁：流媒体代理不支持 Range，防止 timeupdate 覆盖手动 seek ──
+  const seekLocked = ref(false)
+  let _seekLockTimer: ReturnType<typeof setTimeout> | null = null
+
   // ── 音频事件 ──
   function onTimeUpdate() {
-    if (audioRef.value) {
+    if (audioRef.value && !seekLocked.value) {
       playElapsed.value = audioRef.value.currentTime
       currentTrack.duration = audioRef.value.duration || currentTrack.duration
     }
@@ -193,7 +197,13 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
   function seekProgress(ratio: number) {
     const target = ratio * currentTrack.duration
     playElapsed.value = target
-    if (audioRef.value?.src) audioRef.value.currentTime = target
+    // 锁定 onTimeUpdate，防止流媒体（不支持 Range）覆盖回来
+    seekLocked.value = true
+    if (_seekLockTimer) clearTimeout(_seekLockTimer)
+    _seekLockTimer = setTimeout(() => { seekLocked.value = false }, 600)
+    if (audioRef.value) {
+      try { audioRef.value.currentTime = target } catch { /* 忽略 */ }
+    }
   }
 
   // ═══════════════ 埋点上报 ═══════════════

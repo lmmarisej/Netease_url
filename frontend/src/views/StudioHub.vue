@@ -625,8 +625,12 @@ function stopPlayTimer() {
   if (playTimer.value) { clearInterval(playTimer.value); playTimer.value = null }
 }
 
+// ── seek 锁：流媒体代理不支持 Range，设置 currentTime 后 timeupdate 会覆盖回来 ──
+const seekLocked = ref(false)
+let _seekLockTimer = null
+
 function onTimeUpdate() {
-  if (audioRef.value) {
+  if (audioRef.value && !seekLocked.value) {
     playElapsed.value = audioRef.value.currentTime
     currentTrack.duration = audioRef.value.duration || currentTrack.duration
   }
@@ -986,9 +990,13 @@ function seekProgress(e) {
   const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   const target = ratio * currentTrack.duration
   playElapsed.value = target
-  // 直接 seek 音频元素（忽略可能的 DOMException）
+  // 锁定 onTimeUpdate，防止流媒体（不支持 Range）覆盖回来
+  seekLocked.value = true
+  clearTimeout(_seekLockTimer)
+  _seekLockTimer = setTimeout(() => { seekLocked.value = false }, 600)
+  // 尝试 seek 音频（本地文件有效，流媒体会被忽略）
   if (audioRef.value) {
-    try { audioRef.value.currentTime = target } catch { /* 音频未就绪 */ }
+    try { audioRef.value.currentTime = target } catch { /* 忽略 */ }
   }
 }
 
