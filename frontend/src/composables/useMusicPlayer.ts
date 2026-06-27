@@ -109,20 +109,11 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     if (playTimer) { clearInterval(playTimer); playTimer = null }
   }
 
-  // ── seek 偏移追踪：流媒体不支持 Range，用偏移量保持视觉位置 ──
-  const seekOffset = ref(0)
-
   // ── 音频事件 ──
   function onTimeUpdate() {
     if (audioRef.value) {
-      const real = audioRef.value.currentTime
+      playElapsed.value = audioRef.value.currentTime
       currentTrack.duration = audioRef.value.duration || currentTrack.duration
-      if (seekOffset.value !== 0) {
-        playElapsed.value = real + seekOffset.value
-        if (real >= playElapsed.value) seekOffset.value = 0
-      } else {
-        playElapsed.value = real
-      }
     }
   }
 
@@ -148,7 +139,6 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
     currentTrack.duration = t.total_duration || 180
     playElapsed.value = 0
     playedAccum.value = 0
-    seekOffset.value = 0
     hasAudioSource.value = !!t.file_path
 
     const token = localStorage.getItem('token') || ''
@@ -202,13 +192,9 @@ export function useMusicPlayer(audioRef: Ref<HTMLAudioElement | null>) {
 
   function seekProgress(ratio: number) {
     const target = ratio * currentTrack.duration
-    if (audioRef.value && audioRef.value.src) {
-      seekOffset.value = target - (audioRef.value.currentTime || 0)
-      playElapsed.value = target
-      try { audioRef.value.currentTime = target } catch { /* 流媒体忽略 */ }
-    } else {
-      playElapsed.value = target
-      seekOffset.value = 0
+    playElapsed.value = target
+    if (audioRef.value) {
+      try { audioRef.value.currentTime = target } catch { /* ignore */ }
     }
   }
 
