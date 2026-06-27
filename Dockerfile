@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget && \
 # 3. 复制后端代码、下载脚本并备份默认配置
 COPY backend/ ./backend/
 COPY config/ ./config/
-COPY download_panns.py .
+COPY download_models.py .
 
 RUN cp -r /app/config /app/config_defaults && \
     mkdir -p /app/logs /app/downloads
