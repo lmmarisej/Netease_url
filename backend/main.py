@@ -1069,45 +1069,112 @@ def api_tag_tracks(tag_name):
 
 # ==================== SPA 前端路由 ====================
 
-@app.route('/api/v3/music/stream/<track_id>', methods=['GET'])
+@app.route('/api/v3/music/stream/<track_id>', methods=['GET', 'HEAD'])
 def api_v3_music_stream(track_id):
     """
-    流媒体代理：获取网易云歌曲直链并代理流式传输到前端。
-    避免下载整个文件，直接播放。
+    流媒体代理：支持 HTTP Range（可拖动进度条）。
 
-    音频 URL 有效期较短（通常 5-10 分钟），过期后需重新请求。
+    1. HEAD 获取远端文件大小
+    2. 有 Range → 206 Partial Content（仅请求目标字节范围）
+    3. 无 Range → 200 全量流式代理
     """
     try:
         cookies = _pb_load_cookies()
         if not cookies:
             return APIResponse.error("无有效 Cookie", 401)
 
-        # 获取歌曲 URL（默认极高音质）
         song_id = int(track_id)
         url_info = url_v1(song_id, 'exhigh', cookies)
         if not url_info or not url_info.get('data') or not url_info['data'][0].get('url'):
-            # 降级尝试标准音质
             url_info = url_v1(song_id, 'standard', cookies)
             if not url_info or not url_info.get('data') or not url_info['data'][0].get('url'):
                 return APIResponse.error("无法获取歌曲播放链接", 404)
 
         song_url = url_info['data'][0]['url']
         song_type = url_info['data'][0].get('type', 'mp3')
+        content_type = f'audio/{song_type}' if song_type else 'audio/mpeg'
 
-        # 流式代理
-        headers = {
+        hdrs = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://music.163.com/',
         }
-        r = requests.get(song_url, headers=headers, stream=True, timeout=30)
-        r.raise_for_status()
 
-        def generate():
-            for chunk in r.iter_content(chunk_size=65536):
-                yield chunk
+        # ── 获取远端文件大小 ──
+        file_size = 0
+        try:
+            hr = requests.head(song_url, headers=hdrs, timeout=15)
+            file_size = int(hr.headers.get('Content-Length', 0))
+        except Exception:
+            pass
 
-        content_type = f'audio/{song_type}' if song_type else 'audio/mpeg'
-        return Response(stream_with_context(generate()), content_type=content_type)
+        # ── 解析 Range ──
+        range_header = request.headers.get('Range', '')
+        range_start, range_end = None, None
+        if range_header.startswith('bytes='):
+            try:
+                v = range_header[6:]
+                a, _, b = v.partition('-')
+                range_start = int(a) if a else 0
+                range_end = int(b) if b else None
+            except ValueError:
+                pass
+
+        # ── 无 Range 或无法获取大小 → 全量代理 ──
+        if range_start is None or file_size <= 0:
+            r = requests.get(song_url, headers=hdrs, stream=True, timeout=30)
+            r.raise_for_status()
+            def _full():
+                for c in r.iter_content(chunk_size=65536):
+                    yield c
+            resp = Response(stream_with_context(_full()), content_type=content_type)
+            resp.headers['Accept-Ranges'] = 'bytes'
+            if file_size > 0:
+                resp.headers['Content-Length'] = str(file_size)
+            return resp
+
+        if range_end is None:
+            range_end = file_size - 1
+        range_start = max(0, range_start)
+        range_end = min(file_size - 1, range_end)
+        if range_start > range_end:
+            return Response("Range Not Satisfiable", status=416)
+
+        content_length = range_end - range_start + 1
+        range_hdrs = dict(hdrs)
+        range_hdrs['Range'] = f'bytes={range_start}-{range_end}'
+        r = requests.get(song_url, headers=range_hdrs, stream=True, timeout=30)
+
+        # 远端支持 Range → 直接转发
+        if r.status_code == 206:
+            r.raise_for_status()
+            def _range():
+                sent = 0
+                for c in r.iter_content(chunk_size=65536):
+                    if sent >= content_length:
+                        break
+                    yield c
+                    sent += len(c)
+            resp = Response(stream_with_context(_range()), status=206, content_type=content_type)
+        else:
+            # 远端不支持 Range → 手动跳转到目标位置
+            r = requests.get(song_url, headers=hdrs, stream=True, timeout=30)
+            r.raise_for_status()
+            skipped = [0]
+            def _skip():
+                for c in r.iter_content(chunk_size=65536):
+                    if skipped[0] < range_start:
+                        need = range_start - skipped[0]
+                        skipped[0] += len(c)
+                        if skipped[0] > range_start:
+                            yield c[len(c) - (skipped[0] - range_start):]
+                        continue
+                    yield c
+            resp = Response(stream_with_context(_skip()), status=206, content_type=content_type)
+
+        resp.headers['Content-Range'] = f'bytes {range_start}-{range_end}/{file_size}'
+        resp.headers['Content-Length'] = str(content_length)
+        resp.headers['Accept-Ranges'] = 'bytes'
+        return resp
 
     except Exception as e:
         api_service.logger.error(f"流媒体代理异常: {e}")
